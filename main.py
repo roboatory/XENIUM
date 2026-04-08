@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
+from spatialdata_io import xenium
 
 from src import (
     analysis,
@@ -19,6 +21,29 @@ from src.logging import clear_active_log, get_logger, initialize_logging
 CONFIG_PATH = Path("config.yaml").resolve()
 logger = get_logger(__name__)
 
+STAGE_ORDER = ("ingest", "preprocess", "annotate", "domains", "colocalization")
+
+
+def parse_arguments() -> list[str]:
+    """Parse CLI arguments and return the selected stages in pipeline order."""
+
+    parser = argparse.ArgumentParser(
+        description="Xenium spatial transcriptomics pipeline"
+    )
+    parser.add_argument(
+        "--stage",
+        nargs="+",
+        choices=STAGE_ORDER,
+        default=None,
+        help="one or more pipeline stages to run (default: all)",
+    )
+    args = parser.parse_args()
+
+    if args.stage is None:
+        return list(STAGE_ORDER)
+
+    return [stage for stage in STAGE_ORDER if stage in args.stage]
+
 
 def load_configuration() -> Configuration:
     """Load and initialize top-level configuration."""
@@ -26,14 +51,80 @@ def load_configuration() -> Configuration:
     configuration = Configuration()
     configuration.load_from_yaml(CONFIG_PATH)
     configuration.create_directories()
-    initialize_logging(configuration.logs_directory, reset=False)
+    initialize_logging(configuration.logs_directory, reset=True)
     return configuration
 
 
-def run_preprocess_cluster_stage(configuration: Configuration) -> None:
+def _zarr_path(configuration: Configuration) -> Path:
+    """Return the path to the processed zarr store."""
+
+    return configuration.processed_data_directory / "processed.zarr"
+
+
+def _validate_zarr_exists(configuration: Configuration) -> None:
+    """Raise if the processed zarr does not exist."""
+
+    path = _zarr_path(configuration)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"processed zarr not found at '{path}'. run the ingest stage first"
+        )
+
+
+def _validate_obs_column(
+    configuration: Configuration,
+    column: str,
+    stage_name: str,
+) -> None:
+    """Raise if the zarr exists but is missing a required obs column."""
+
+    _validate_zarr_exists(configuration)
+    spatial_data = io.read_spatialdata_zarr(configuration)
+    annotated_data = spatial_data["table"]
+    if column not in annotated_data.obs.columns:
+        raise ValueError(
+            f"'{column}' not found in obs. run the upstream stages before {stage_name}"
+        )
+
+
+def _validate_obsp_key(
+    configuration: Configuration,
+    key: str,
+    stage_name: str,
+) -> None:
+    """Raise if the zarr exists but is missing a required obsp key."""
+
+    _validate_zarr_exists(configuration)
+    spatial_data = io.read_spatialdata_zarr(configuration)
+    annotated_data = spatial_data["table"]
+    if key not in annotated_data.obsp:
+        raise ValueError(
+            f"'{key}' not found in obsp. run the upstream stages before {stage_name}"
+        )
+
+
+def run_ingest_stage(configuration: Configuration) -> None:
+    """Ingest raw Xenium output into a processed SpatialData zarr."""
+
+    logger.info("stage: ingest")
+    if not configuration.raw_data_directory.exists():
+        raise FileNotFoundError(
+            f"raw data directory not found at '{configuration.raw_data_directory}'"
+        )
+
+    spatial_data = xenium(configuration.raw_data_directory)
+    if "morphology_focus" in spatial_data:
+        del spatial_data["morphology_focus"]
+        logger.debug("removed morphology_focus element from ingested spatialdata")
+
+    io.write_spatialdata_zarr(configuration, spatial_data)
+
+
+def run_preprocess_stage(configuration: Configuration) -> None:
     """Run preprocessing and clustering steps on pre-ingested data."""
 
     logger.info("stage: preprocess and cluster")
+    _validate_zarr_exists(configuration)
     spatial_data = io.read_spatialdata_zarr(configuration)
     annotated_data = spatial_data["table"]
 
@@ -87,10 +178,11 @@ def run_preprocess_cluster_stage(configuration: Configuration) -> None:
     io.write_spatialdata_zarr(configuration, spatial_data)
 
 
-def run_annotation_stage(configuration: Configuration) -> None:
+def run_annotate_stage(configuration: Configuration) -> None:
     """Run LLM-driven cell-type annotation and persist updated zarr."""
 
     logger.info("stage: annotate clusters")
+    _validate_obs_column(configuration, "leiden", "annotate")
     spatial_data = io.read_spatialdata_zarr(configuration)
     annotated_data = spatial_data["table"]
 
@@ -128,10 +220,11 @@ def run_annotation_stage(configuration: Configuration) -> None:
     io.write_spatialdata_zarr(configuration, spatial_data)
 
 
-def run_neighborhood_stage(configuration: Configuration) -> None:
+def run_domains_stage(configuration: Configuration) -> None:
     """Run neighborhood analysis and persist updated zarr."""
 
     logger.info("stage: spatial domains")
+    _validate_obs_column(configuration, "cell_type", "domains")
     spatial_data = io.read_spatialdata_zarr(configuration)
     annotated_data = spatial_data["table"]
 
@@ -177,6 +270,8 @@ def run_colocalization_stage(configuration: Configuration) -> None:
     """Run observed cell-type contact colocalization and write artifacts."""
 
     logger.info("stage: colocalization")
+    _validate_obs_column(configuration, "cell_type", "colocalization")
+    _validate_obsp_key(configuration, "spatial_connectivities", "colocalization")
     spatial_data = io.read_spatialdata_zarr(configuration)
     annotated_data = spatial_data["table"]
 
@@ -207,22 +302,22 @@ def run_colocalization_stage(configuration: Configuration) -> None:
     )
 
 
-def main() -> None:
-    configuration = load_configuration()
-    logger.info("pipeline start")
-    ingested_path = configuration.processed_data_directory / "processed.zarr"
-    if not ingested_path.exists():
-        msg = (
-            f"ingested data not found at '{ingested_path}'. "
-            "run `uv run python3 ingest.py` before launching main.py."
-        )
-        logger.error(msg)
-        raise FileNotFoundError(msg)
+STAGE_DISPATCH = {
+    "ingest": run_ingest_stage,
+    "preprocess": run_preprocess_stage,
+    "annotate": run_annotate_stage,
+    "domains": run_domains_stage,
+    "colocalization": run_colocalization_stage,
+}
 
-    run_preprocess_cluster_stage(configuration)
-    run_annotation_stage(configuration)
-    run_neighborhood_stage(configuration)
-    run_colocalization_stage(configuration)
+
+def main() -> None:
+    stages = parse_arguments()
+    configuration = load_configuration()
+    logger.info("pipeline start (stages: %s)", ", ".join(stages))
+
+    for stage_name in stages:
+        STAGE_DISPATCH[stage_name](configuration)
 
     state_path = state.build_state_path(configuration)
     configuration_snapshot = state.configuration_settings_snapshot(configuration)
