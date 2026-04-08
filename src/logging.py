@@ -79,12 +79,11 @@ def initialize_logging(
     logs_directory.mkdir(parents=True, exist_ok=True)
     log_path = _resolve_log_path(logs_directory, reset=reset)
 
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    root_logger.handlers.clear()
-    root_logger.addHandler(_build_file_handler(log_path))
-
-    logging.captureWarnings(True)
+    pipeline_logger = logging.getLogger("pipeline")
+    pipeline_logger.setLevel(logging.INFO)
+    pipeline_logger.handlers.clear()
+    pipeline_logger.addHandler(_build_file_handler(log_path))
+    pipeline_logger.propagate = False
     sys.excepthook = _log_unhandled_exception
 
     _LOG_PATH = log_path
@@ -100,7 +99,12 @@ def clear_active_log(logs_directory: Path) -> None:
         active_log_path.unlink()
 
 
-def get_logger(name: str | None = None) -> logging.Logger:
-    """Return a module logger."""
+_LOGGER_NAMESPACE = "pipeline"
 
-    return logging.getLogger(name if name is not None else "pipeline")
+
+def get_logger(name: str | None = None) -> logging.Logger:
+    """Return a module logger under the pipeline namespace."""
+
+    if name is None:
+        return logging.getLogger(_LOGGER_NAMESPACE)
+    return logging.getLogger(f"{_LOGGER_NAMESPACE}.{name}")
