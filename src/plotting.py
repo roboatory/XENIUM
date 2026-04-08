@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from collections.abc import Iterator
 
 import matplotlib
 
@@ -7,21 +9,30 @@ matplotlib.use("agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import scanpy as sc
-
-from .config import Configuration
-
+from anndata import AnnData
 from spatialdata import SpatialData
 import spatialdata_plot  # noqa: F401
 
-from anndata import AnnData
-import pandas as pd
-
+from .config import Configuration
 from .logging import get_logger
 
 logger = get_logger(__name__)
 
 FIGURE_DPI = 300
+
+
+@contextmanager
+def _suppress_show() -> Iterator[None]:
+    """Temporarily suppress plt.show calls from third-party plotting code."""
+
+    original_show = plt.show
+    plt.show = lambda: None
+    try:
+        yield
+    finally:
+        plt.show = original_show
 
 
 def plot_cell_and_nucleus_boundaries(
@@ -33,11 +44,8 @@ def plot_cell_and_nucleus_boundaries(
     out_path = configuration.figures_directory / "xenium_cell_nucleus_boundaries.png"
     logger.debug("rendering cell and nucleus boundary plot to %s", out_path)
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
-        fig, ax = plt.subplots(figsize=(14, 14), dpi=_dpi)
+    with _suppress_show():
+        fig, ax = plt.subplots(figsize=(14, 14), dpi=FIGURE_DPI)
 
         (
             spatial_data.pl.render_shapes(
@@ -54,15 +62,13 @@ def plot_cell_and_nucleus_boundaries(
                 outline_width=0.35,
                 outline_alpha=1.0,
             )
-            .pl.show(ax=ax, title="", dpi=_dpi)
+            .pl.show(ax=ax, title="", dpi=FIGURE_DPI)
         )
 
         ax.axis("off")
-        fig.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        fig.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(fig)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_transcripts(
@@ -79,11 +85,8 @@ def plot_transcripts(
     )
     logger.debug("rendering transcript plot for genes=%s to %s", genes, out_path)
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
-        fig, ax = plt.subplots(figsize=(14, 14), dpi=_dpi)
+    with _suppress_show():
+        fig, ax = plt.subplots(figsize=(14, 14), dpi=FIGURE_DPI)
 
         (
             spatial_data.pl.render_points(
@@ -93,15 +96,13 @@ def plot_transcripts(
                 size=2,
                 max_points=max_points,
                 palette=palette,
-            ).pl.show(ax=ax, title="", dpi=_dpi, colorbar=False)
+            ).pl.show(ax=ax, title="", dpi=FIGURE_DPI, colorbar=False)
         )
 
         ax.axis("off")
-        fig.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        fig.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(fig)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_qc_histogram(
@@ -120,11 +121,8 @@ def plot_qc_histogram(
         int(np.quantile(annotated_data.obs["total_counts"], cutoffs[1])),
     ]
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
-        figure, ax = plt.subplots(figsize=(10, 5), dpi=_dpi)
+    with _suppress_show():
+        figure, ax = plt.subplots(figsize=(10, 5), dpi=FIGURE_DPI)
         ax.hist(annotated_data.obs["total_counts"], bins=100, color="black", alpha=0.8)
         ax.set_xlabel("transcripts per cell")
         ax.set_ylabel("number of cells")
@@ -144,11 +142,9 @@ def plot_qc_histogram(
                 bbox=dict(facecolor="white", alpha=0.5, edgecolor="none", pad=0.2),
             )
 
-        figure.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        figure.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(figure)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_umap_leiden(
@@ -161,21 +157,16 @@ def plot_umap_leiden(
     annotated_data = spatial_data["table"]
     logger.debug("rendering UMAP plot to %s", out_path)
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
+    with _suppress_show():
         umap_figure = sc.pl.umap(
             annotated_data,
             color="cell_type",
             show=False,
             return_fig=True,
         )
-        umap_figure.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        umap_figure.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(umap_figure)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_cluster_overlay(
@@ -194,11 +185,8 @@ def plot_cluster_overlay(
     gdf[cluster_key] = gdf.index.map(cell_to_cluster)
     gdf = gdf.dropna(subset=[cluster_key])
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
-        fig, ax = plt.subplots(figsize=(14, 14), dpi=_dpi)
+    with _suppress_show():
+        fig, ax = plt.subplots(figsize=(14, 14), dpi=FIGURE_DPI)
         n_clusters = max(gdf[cluster_key].nunique(), 1)
         cmap = matplotlib.colormaps["Set3"].resampled(n_clusters)
         gdf.plot(
@@ -218,11 +206,9 @@ def plot_cluster_overlay(
         ax.set_aspect("equal")
         ax.axis("off")
         ax.invert_yaxis()
-        fig.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        fig.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(fig)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_rank_genes_dotplot(
@@ -235,10 +221,7 @@ def plot_rank_genes_dotplot(
     out_path = configuration.figures_directory / f"rank_genes_dotplot_top_{n_genes}.png"
     logger.debug("rendering ranked-genes dotplot to %s", out_path)
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
+    with _suppress_show():
         dotplot = sc.pl.rank_genes_groups_dotplot(
             annotated_data,
             n_genes=n_genes,
@@ -247,11 +230,9 @@ def plot_rank_genes_dotplot(
         )
         dotplot.make_figure()
         fig = dotplot.fig
-        fig.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        fig.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(fig)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_colocalization_contact_counts(
@@ -265,11 +246,8 @@ def plot_colocalization_contact_counts(
     )
     logger.debug("rendering colocalization count heatmap to %s", out_path)
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
-        fig, ax = plt.subplots(figsize=(12, 10), dpi=_dpi)
+    with _suppress_show():
+        fig, ax = plt.subplots(figsize=(12, 10), dpi=FIGURE_DPI)
         image = ax.imshow(np.log1p(counts.to_numpy()), cmap="magma")
         ax.set_xticks(np.arange(counts.shape[1]))
         ax.set_yticks(np.arange(counts.shape[0]))
@@ -282,11 +260,9 @@ def plot_colocalization_contact_counts(
         colorbar = fig.colorbar(image, ax=ax)
         colorbar.set_label("log1p(contact count)")
         fig.tight_layout()
-        fig.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        fig.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(fig)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_colocalization_contact_row_proportions(
@@ -301,11 +277,8 @@ def plot_colocalization_contact_row_proportions(
     )
     logger.debug("rendering row-normalized colocalization heatmap to %s", out_path)
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
-        fig, ax = plt.subplots(figsize=(12, 10), dpi=_dpi)
+    with _suppress_show():
+        fig, ax = plt.subplots(figsize=(12, 10), dpi=FIGURE_DPI)
         image = ax.imshow(proportions.to_numpy(), cmap="viridis", vmin=0.0, vmax=1.0)
         ax.set_xticks(np.arange(proportions.shape[1]))
         ax.set_yticks(np.arange(proportions.shape[0]))
@@ -318,11 +291,9 @@ def plot_colocalization_contact_row_proportions(
         colorbar = fig.colorbar(image, ax=ax)
         colorbar.set_label("row-normalized contact proportion")
         fig.tight_layout()
-        fig.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        fig.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(fig)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_colocalization_log2_fold_enrichment(
@@ -337,20 +308,15 @@ def plot_colocalization_log2_fold_enrichment(
     )
     logger.debug("rendering log2 fold enrichment heatmap to %s", out_path)
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
-        figure, axis = plt.subplots(figsize=(12, 10), dpi=_dpi)
+    with _suppress_show():
+        figure, axis = plt.subplots(figsize=(12, 10), dpi=FIGURE_DPI)
         _render_log2_enrichment_heatmap(
             axis, log2_fold_enrichment, title="first-degree contact enrichment"
         )
         figure.tight_layout()
-        figure.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        figure.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(figure)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def plot_colocalization_log2_fold_enrichment_significant_only(
@@ -367,22 +333,17 @@ def plot_colocalization_log2_fold_enrichment_significant_only(
     logger.debug("rendering significant-only enrichment heatmap to %s", out_path)
     significant_only = log2_fold_enrichment.where(significant_mask, np.nan)
 
-    _show = plt.show
-    plt.show = lambda: None
-    try:
-        _dpi = FIGURE_DPI
-        figure, axis = plt.subplots(figsize=(12, 10), dpi=_dpi)
+    with _suppress_show():
+        figure, axis = plt.subplots(figsize=(12, 10), dpi=FIGURE_DPI)
         _render_log2_enrichment_heatmap(
             axis,
             significant_only,
             title="significant first-degree contact enrichment",
         )
         figure.tight_layout()
-        figure.savefig(out_path, bbox_inches="tight", dpi=_dpi)
+        figure.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
         plt.close(figure)
         logger.debug("saved figure %s", out_path)
-    finally:
-        plt.show = _show
 
 
 def _render_log2_enrichment_heatmap(

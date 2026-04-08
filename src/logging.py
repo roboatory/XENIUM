@@ -100,40 +100,7 @@ def clear_active_log(logs_directory: Path) -> None:
         active_log_path.unlink()
 
 
-def current_log_path() -> Path | None:
-    """Return the current log path, if logging has been initialized."""
-
-    return _LOG_PATH
-
-
 def get_logger(name: str | None = None) -> logging.Logger:
     """Return a module logger."""
 
     return logging.getLogger(name if name is not None else "pipeline")
-
-
-def log_stdout(
-    message: str,
-    *args: object,
-) -> None:
-    """Write an informational message."""
-
-    get_logger("pipeline.stdout").info(message, *args)
-
-
-def log_warning(
-    message: str,
-    *args: object,
-) -> None:
-    """Write a warning message."""
-
-    get_logger("pipeline.warning").warning(message, *args)
-
-
-def log_error(
-    message: str,
-    *args: object,
-) -> None:
-    """Write an error message."""
-
-    get_logger("pipeline.error").error(message, *args)

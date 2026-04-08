@@ -13,21 +13,7 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class PipelineConfiguration:
-    """Configuration for analysis pipeline parameters.
-
-    This bundles together:
-    - the minimum number of counts per cell
-    - the maximum counts quantile
-    - the minimum number of cells per gene
-    - the number of principal components for PCA
-    - the shared radius for spatial domains and cell-type colocalization
-    - the number of permutations for colocalization significance testing
-    - the minimum number of cells to test a cell type in colocalization
-    - the number of spatial domains to infer with k-means
-    - the number of top genes to use for enrichment analysis
-    - the minimum log fold change for enrichment analysis
-    - the maximum adjusted p-value for enrichment analysis
-    """
+    """Numeric parameters for the analysis pipeline."""
 
     minimum_counts: int
     maximum_counts_quantile: float
@@ -69,10 +55,7 @@ class PipelineConfiguration:
 
 @dataclass(frozen=True)
 class PlotsConfiguration:
-    """Configuration for plotting behaviour.
-
-    This bundles together the genes to plot for transcript figures.
-    """
+    """Configuration for plotting behaviour."""
 
     genes_to_plot: tuple[str, ...] = ()
 
@@ -90,13 +73,7 @@ class PlotsConfiguration:
 
 @dataclass
 class Configuration:
-    """Top-level configuration object used across the project.
-
-    This bundles together:
-    - all input paths (e.g. raw data directory)
-    - all output paths (processed data, analysis, figures)
-    - all tunable parameters loaded from the YAML file
-    """
+    """Top-level configuration loaded from YAML."""
 
     raw_data_directory: Path | None = None
     output_directory: Path | None = None
@@ -110,7 +87,7 @@ class Configuration:
     plots: PlotsConfiguration | None = None
 
     def load_from_yaml(
-        self: type[Configuration],
+        self,
         configuration_path: Path,
     ) -> None:
         """Load configuration from a YAML file and populate this instance."""
@@ -139,21 +116,15 @@ class Configuration:
             self.output_directory,
         )
 
-    def create_directories(
-        self: type[Configuration],
-    ) -> None:
+    def create_directories(self) -> None:
         """Ensure all output directories exist."""
 
-        paths = (
+        for path in (
             self.processed_data_directory,
             self.results_directory,
             self.figures_directory,
             self.logs_directory,
-        )
-        for path in paths:
+        ):
             if path is not None:
                 path.mkdir(parents=True, exist_ok=True)
-
-        for path in paths:
-            if path is not None:
                 logger.debug("ensured output directory exists: %s", path)
