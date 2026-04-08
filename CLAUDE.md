@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A spatial transcriptomics analysis pipeline for Xenium data. Two-stage execution: data ingestion (`ingest.py`) then analysis (`main.py`). The analysis pipeline runs four stages sequentially: preprocessing/clustering, LLM-based annotation (via local Ollama), spatial domain analysis, and colocalization with permutation significance testing.
+A spatial transcriptomics analysis pipeline for Xenium data. Single entry point (`main.py`) that runs five stages sequentially: ingestion, preprocessing/clustering, LLM-based annotation (via local Ollama), spatial domain analysis, and colocalization with permutation significance testing. Stages can be run selectively via `--stage`.
 
 ## Commands
 
@@ -12,9 +12,12 @@ A spatial transcriptomics analysis pipeline for Xenium data. Two-stage execution
 # Install dependencies
 uv sync
 
-# Run the pipeline (must be in order)
-uv run ingest.py        # ingest raw Xenium data into SpatialData Zarr
-uv run main.py          # run full analysis pipeline
+# Run the full pipeline (all stages)
+uv run main.py
+
+# Run specific stages (always execute in pipeline order)
+uv run main.py --stage ingest preprocess
+uv run main.py --stage colocalization
 
 # Lint and format
 uv run ruff check --fix .
@@ -31,23 +34,23 @@ Pre-commit hooks (ruff lint + ruff format) run on commit and push.
 
 ## Architecture
 
-`ingest.py` reads raw Xenium output via `spatialdata_io.xenium()` and writes a processed SpatialData Zarr. `main.py` loads that Zarr and runs all analysis stages, delegating to modules in `src/`.
+`main.py` orchestrates all pipeline stages, delegating to modules in `src/`. Stages can be run selectively via `--stage` (accepts one or more of: `ingest`, `preprocess`, `annotate`, `domains`, `colocalization`). When omitted, all stages run in order. Each stage validates its preconditions before executing.
 
 ### Pipeline stages in `main.py`
 
-#### Ingestion (`ingest.py`)
+#### Stage 0: Ingest (`run_ingest_stage`)
 
-Reads raw Xenium output into a SpatialData Zarr (`processed/processed.zarr`). Must complete before `main.py`.
+Reads raw Xenium output via `spatialdata_io.xenium()` into a SpatialData Zarr (`processed/processed.zarr`).
 
-#### Stage 1: Preprocess & Cluster (`run_preprocess_cluster_stage`)
+#### Stage 1: Preprocess & Cluster (`run_preprocess_stage`)
 
 QC filtering, normalization (Seurat v3 HVG selection), PCA, Leiden clustering, UMAP, and marker gene ranking. Writes cluster labels, enriched gene lists, and the updated Zarr.
 
-#### Stage 2: Annotation (`run_annotation_stage`)
+#### Stage 2: Annotation (`run_annotate_stage`)
 
 Sends per-cluster enriched gene lists to a local Ollama LLM, which returns a cell-type label for each Leiden cluster. Maps labels onto `obs["cell_type"]` and writes the updated Zarr.
 
-#### Stage 3: Spatial Domains (`run_neighborhood_stage`)
+#### Stage 3: Spatial Domains (`run_domains_stage`)
 
 Computes per-cell neighborhood composition (cell-type proportions among spatial neighbors within a radius), clusters those vectors with k-means into spatial domains, and sends domain signatures to the LLM for microenvironment-style labeling. Writes domain labels and the updated Zarr.
 
