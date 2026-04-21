@@ -373,7 +373,10 @@ def _render_log2_enrichment_heatmap(
     values = matrix.to_numpy(dtype=float)
     finite_values = values[np.isfinite(values)]
 
-    max_abs = float(np.nanmax(np.abs(finite_values)))
+    if finite_values.size == 0:
+        max_abs = 1.0
+    else:
+        max_abs = float(np.nanmax(np.abs(finite_values)))
     if max_abs == 0.0:
         max_abs = 1.0
 
