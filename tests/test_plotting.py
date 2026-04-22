@@ -31,7 +31,7 @@ def test_plot_cluster_overlay_writes_per_sample_centroid_scatter(
         sample_id="sample_a",
     )
     _assert_nonempty_file(
-        configuration.figures_directory / "xenium_cell_type_overlay_sample_a.png"
+        configuration.figures_directory / "sample_a" / "xenium_cell_type_overlay.png"
     )
 
 
@@ -50,7 +50,9 @@ def test_plot_cluster_overlay_filters_to_requested_sample(
         sample_id="missing_sample",
     )
     assert not (
-        configuration.figures_directory / "xenium_cell_type_overlay_missing_sample.png"
+        configuration.figures_directory
+        / "missing_sample"
+        / "xenium_cell_type_overlay.png"
     ).exists()
 
 
@@ -128,6 +130,29 @@ def test_plot_umap_leiden_takes_anndata_directly(
 
     plotting.plot_umap_leiden(configuration, tiny_adata)
     _assert_nonempty_file(configuration.figures_directory / "umap_leiden.png")
+
+
+def test_plot_qc_histogram_faceted_by_sample(
+    configuration: Configuration,
+    tiny_adata: AnnData,
+) -> None:
+    """plot_qc_histogram writes a faceted PNG using per-sample MAD cutoffs."""
+
+    import anndata as ad
+
+    a = tiny_adata.copy()
+    b = tiny_adata.copy()
+    merged = ad.concat(
+        [a, b], keys=["sample_a", "sample_b"], label="sample_id", index_unique="_"
+    )
+    merged.obs.index.name = None
+    sc.pp.calculate_qc_metrics(merged, inplace=True, percent_top=[20], log1p=True)
+    from src.preprocessing import compute_per_sample_mad_cutoffs
+
+    cutoffs = compute_per_sample_mad_cutoffs(merged)
+
+    plotting.plot_qc_histogram(configuration, merged, cutoffs)
+    _assert_nonempty_file(configuration.figures_directory / "xenium_qc_histograms.png")
 
 
 def test_plot_harmony_diagnostic_writes_figure(

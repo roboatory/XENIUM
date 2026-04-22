@@ -22,12 +22,17 @@ def compute_neighborhood_composition(
     categories = cell_types.cat.categories.astype(str)
     codes = cell_types.cat.codes.to_numpy()
 
-    sq.gr.spatial_neighbors(
-        annotated_data,
-        radius=radius,
-        coord_type="generic",
-        delaunay=True,
-    )
+    spatial_neighbors_kwargs = {
+        "radius": radius,
+        "coord_type": "generic",
+        "delaunay": True,
+    }
+    if (
+        "sample_id" in annotated_data.obs.columns
+        and annotated_data.obs["sample_id"].nunique() > 1
+    ):
+        spatial_neighbors_kwargs["library_key"] = "sample_id"
+    sq.gr.spatial_neighbors(annotated_data, **spatial_neighbors_kwargs)
 
     connectivities = annotated_data.obsp["spatial_connectivities"].tocsr().copy()
     connectivities.setdiag(0)

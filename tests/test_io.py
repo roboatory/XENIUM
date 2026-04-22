@@ -69,37 +69,74 @@ def test_write_annotations_creates_expected_files(configuration: Configuration) 
     assert json.loads(domain_path.read_text()) == domain_annotations
 
 
-def test_write_labels_cluster_mode_writes_csv_with_cell_id(
+def test_write_labels_cluster_mode_writes_per_sample_csv(
     configuration: Configuration,
     tiny_adata: AnnData,
 ) -> None:
-    """write_labels produces leiden_clusters.csv with the cell_id and group columns."""
+    """write_labels produces one leiden_clusters.csv per sample under results/<sample_id>/."""
 
+    tiny_adata.obs["sample_id"] = ["sample_a"] * (tiny_adata.n_obs // 2) + [
+        "sample_b"
+    ] * (tiny_adata.n_obs - tiny_adata.n_obs // 2)
     tiny_adata.obs["leiden"] = ["0"] * (tiny_adata.n_obs // 2) + ["1"] * (
         tiny_adata.n_obs - tiny_adata.n_obs // 2
     )
+
     io.write_labels(configuration, tiny_adata, "cluster")
 
-    output_path = configuration.results_directory / "leiden_clusters.csv"
-    dataframe = pd.read_csv(output_path)
-    assert list(dataframe.columns) == ["cell_id", "group"]
-    assert len(dataframe) == tiny_adata.n_obs
-    assert set(dataframe["group"].astype(str).unique()) == {"0", "1"}
+    for sample_id in ("sample_a", "sample_b"):
+        output_path = (
+            configuration.results_directory / sample_id / "leiden_clusters.csv"
+        )
+        dataframe = pd.read_csv(output_path)
+        assert list(dataframe.columns) == ["cell_id", "group"]
+        assert (
+            dataframe["group"].astype(str) == ("0" if sample_id == "sample_a" else "1")
+        ).all()
 
 
-def test_write_labels_domain_mode_writes_csv_at_expected_path(
+def test_write_labels_domain_mode_writes_per_sample_csv(
     configuration: Configuration,
     tiny_adata: AnnData,
 ) -> None:
-    """write_labels in domain mode writes spatial_domain_labels.csv."""
+    """write_labels in domain mode writes per-sample spatial_domain_labels.csv files."""
 
+    tiny_adata.obs["sample_id"] = ["sample_a"] * tiny_adata.n_obs
     tiny_adata.obs["spatial_domain"] = pd.Categorical(["A"] * tiny_adata.n_obs)
+
     io.write_labels(configuration, tiny_adata, "domain")
 
-    output_path = configuration.results_directory / "spatial_domain_labels.csv"
+    output_path = (
+        configuration.results_directory / "sample_a" / "spatial_domain_labels.csv"
+    )
     dataframe = pd.read_csv(output_path)
     assert list(dataframe.columns) == ["cell_id", "group"]
     assert len(dataframe) == tiny_adata.n_obs
+
+
+def test_write_labels_preserves_original_cell_id_per_sample(
+    configuration: Configuration,
+    tiny_adata: AnnData,
+) -> None:
+    """Each sample's CSV contains only that sample's original cell_id values."""
+
+    tiny_adata.obs["sample_id"] = ["sample_a"] * (tiny_adata.n_obs // 2) + [
+        "sample_b"
+    ] * (tiny_adata.n_obs - tiny_adata.n_obs // 2)
+    tiny_adata.obs["leiden"] = ["0"] * tiny_adata.n_obs
+
+    io.write_labels(configuration, tiny_adata, "cluster")
+
+    a_csv = pd.read_csv(
+        configuration.results_directory / "sample_a" / "leiden_clusters.csv"
+    )
+    b_csv = pd.read_csv(
+        configuration.results_directory / "sample_b" / "leiden_clusters.csv"
+    )
+    assert len(a_csv) + len(b_csv) == tiny_adata.n_obs
+    # Per-sample CSVs use original cell_ids (not uniqueified obs_names with _sample_a suffix).
+    assert "_sample_a" not in "".join(a_csv["cell_id"].astype(str))
+    assert "_sample_b" not in "".join(b_csv["cell_id"].astype(str))
 
 
 def test_save_state_writes_sorted_json(tmp_path: Path) -> None:

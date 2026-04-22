@@ -32,6 +32,33 @@ def test_assign_spatial_domains_populates_categorical_labels(
     assert tiny_adata.obs["spatial_domain"].nunique() <= 3
 
 
+def test_spatial_neighbors_is_block_diagonal_across_samples(
+    tiny_adata: AnnData,
+) -> None:
+    """With multi-sample data, spatial_connectivities has zero cross-sample edges."""
+
+    import anndata as ad
+
+    a = tiny_adata.copy()
+    b = tiny_adata.copy()
+    b.obsm["spatial"] = b.obsm["spatial"] + np.array([200.0, 200.0]).astype(
+        b.obsm["spatial"].dtype
+    )
+    merged = ad.concat(
+        [a, b], keys=["sample_a", "sample_b"], label="sample_id", index_unique="_"
+    )
+    merged.obs.index.name = None
+
+    spatial_domains.compute_neighborhood_composition(merged, radius=30.0)
+
+    connectivities = merged.obsp["spatial_connectivities"].tocoo()
+    sample_of_cell = merged.obs["sample_id"].astype(str).to_numpy()
+    cross_sample_edges = (
+        sample_of_cell[connectivities.row] != sample_of_cell[connectivities.col]
+    )
+    assert not cross_sample_edges.any()
+
+
 def test_build_domain_signatures_is_sorted_descending(tiny_adata: AnnData) -> None:
     """Each domain signature is a list of (cell_type, proportion) sorted descending."""
 
