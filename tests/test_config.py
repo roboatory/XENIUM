@@ -5,15 +5,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.config import Configuration, PipelineConfiguration, PlotsConfiguration
+from src.config import Configuration, PipelineConfiguration, PlotsConfiguration, Sample
 
 
 def _base_config_dict(raw: Path, output: Path) -> dict:
     return {
-        "data_directory": str(raw),
+        "samples": [{"id": "sample_a", "path": str(raw / "sample_a")}],
         "output_directory": str(output),
         "annotation_model": "llama3.1:8b",
-        "condition": "prostate cancer",
         "pipeline": {
             "minimum_counts": 10,
             "maximum_counts_quantile": 0.99,
@@ -38,7 +37,7 @@ def _write_config(tmp_path: Path, payload: dict) -> Path:
 
 
 def test_load_from_yaml_populates_all_fields(tmp_path: Path) -> None:
-    """load_from_yaml fills directories and nested configs from YAML."""
+    """load_from_yaml fills directories, samples, and nested configs from YAML."""
 
     config_path = _write_config(
         tmp_path, _base_config_dict(tmp_path / "raw", tmp_path / "output")
@@ -47,8 +46,8 @@ def test_load_from_yaml_populates_all_fields(tmp_path: Path) -> None:
     configuration.load_from_yaml(config_path)
 
     assert configuration.annotation_model == "llama3.1:8b"
-    assert configuration.condition == "prostate cancer"
-    assert configuration.raw_data_directory == (tmp_path / "raw").resolve()
+    assert [sample.id for sample in configuration.samples] == ["sample_a"]
+    assert configuration.samples[0].path == (tmp_path / "raw" / "sample_a").resolve()
     assert configuration.output_directory == (tmp_path / "output").resolve()
     assert (
         configuration.processed_data_directory
@@ -79,17 +78,15 @@ def test_plots_genes_are_sorted(tmp_path: Path) -> None:
 
 
 def test_defaults_used_when_optional_keys_omitted(tmp_path: Path) -> None:
-    """Missing optional keys fall back to the Configuration defaults."""
+    """Missing optional keys fall back to Configuration defaults."""
 
     payload = _base_config_dict(tmp_path / "raw", tmp_path / "output")
     payload.pop("annotation_model")
-    payload.pop("condition")
     config_path = _write_config(tmp_path, payload)
 
     configuration = Configuration()
     configuration.load_from_yaml(config_path)
     assert configuration.annotation_model == "llama3.1:8b"
-    assert configuration.condition == "prostate cancer"
 
 
 def test_create_directories_makes_all_outputs(tmp_path: Path) -> None:
@@ -109,6 +106,35 @@ def test_create_directories_makes_all_outputs(tmp_path: Path) -> None:
         configuration.logs_directory,
     ):
         assert directory.is_dir()
+
+
+def test_multiple_samples_parsed_in_order(tmp_path: Path) -> None:
+    """Multiple sample records are loaded preserving the order given in YAML."""
+
+    payload = _base_config_dict(tmp_path / "raw", tmp_path / "output")
+    payload["samples"] = [
+        {"id": "patient_001", "path": str(tmp_path / "raw" / "p001")},
+        {"id": "patient_002", "path": str(tmp_path / "raw" / "p002")},
+        {"id": "patient_003", "path": str(tmp_path / "raw" / "p003")},
+    ]
+    config_path = _write_config(tmp_path, payload)
+
+    configuration = Configuration()
+    configuration.load_from_yaml(config_path)
+
+    assert [sample.id for sample in configuration.samples] == [
+        "patient_001",
+        "patient_002",
+        "patient_003",
+    ]
+
+
+def test_sample_from_dictionary_parses_id_and_path(tmp_path: Path) -> None:
+    """Sample.from_dictionary reads id and path fields."""
+
+    sample = Sample.from_dictionary({"id": "a", "path": str(tmp_path / "a")})
+    assert sample.id == "a"
+    assert sample.path == (tmp_path / "a").resolve()
 
 
 def test_pipeline_configuration_casts_numeric_types() -> None:

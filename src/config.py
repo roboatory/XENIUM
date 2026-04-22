@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +9,26 @@ import yaml
 from .logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class Sample:
+    """A single Xenium sample record loaded from config.yaml."""
+
+    id: str
+    path: Path
+
+    @classmethod
+    def from_dictionary(
+        cls: type[Sample],
+        data: dict[str, Any],
+    ) -> Sample:
+        """Create a Sample from a raw YAML record with id and path."""
+
+        return cls(
+            id=str(data["id"]),
+            path=Path(data["path"]).resolve(),
+        )
 
 
 @dataclass(frozen=True)
@@ -75,14 +95,13 @@ class PlotsConfiguration:
 class Configuration:
     """Top-level configuration loaded from YAML."""
 
-    raw_data_directory: Path | None = None
+    samples: list[Sample] = field(default_factory=list)
     output_directory: Path | None = None
     processed_data_directory: Path | None = None
     results_directory: Path | None = None
     figures_directory: Path | None = None
     logs_directory: Path | None = None
     annotation_model: str = "llama3.1:8b"
-    condition: str = "prostate cancer"
     pipeline: PipelineConfiguration | None = None
     plots: PlotsConfiguration | None = None
 
@@ -95,10 +114,7 @@ class Configuration:
         with configuration_path.open("r") as f:
             configuration = yaml.safe_load(f)
 
-        raw_data_directory = Path(configuration["data_directory"]).resolve()
         output_directory = Path(configuration["output_directory"]).resolve()
-
-        self.raw_data_directory = raw_data_directory
         self.output_directory = output_directory
         self.processed_data_directory = output_directory / "processed"
         self.results_directory = output_directory / "analysis"
@@ -107,12 +123,16 @@ class Configuration:
         self.annotation_model = str(
             configuration.get("annotation_model", self.annotation_model)
         )
-        self.condition = str(configuration.get("condition", self.condition))
+
+        self.samples = [
+            Sample.from_dictionary(record) for record in configuration["samples"]
+        ]
         self.pipeline = PipelineConfiguration.from_dictionary(configuration["pipeline"])
         self.plots = PlotsConfiguration.from_dictionary(configuration["plots"])
         logger.debug(
-            "loaded configuration from %s with output root %s",
+            "loaded configuration from %s with %s sample(s) and output root %s",
             configuration_path,
+            len(self.samples),
             self.output_directory,
         )
 

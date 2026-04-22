@@ -1,7 +1,9 @@
-data_directory: "../data/output-XETG00171__0050702__Region_3__20250606__163112"
+samples:
+  - id: region_3
+    path: "../data/output-XETG00171__0050702__Region_3__20250606__163112"
+
 output_directory: "../output/output-XETG00171__0050702__Region_3__20250606__163112"
 annotation_model: "llama3.1:8b"
-condition: "prostate cancer"
 
 pipeline:
   minimum_counts: 200

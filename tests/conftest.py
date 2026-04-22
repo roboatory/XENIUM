@@ -7,14 +7,15 @@ import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
-from geopandas import GeoDataFrame
 from scipy.sparse import csr_matrix
-from shapely.geometry import Polygon
-from spatialdata import SpatialData
-from spatialdata.models import ShapesModel, TableModel
 
 from src import logging as pipeline_logging
-from src.config import Configuration, PipelineConfiguration, PlotsConfiguration
+from src.config import (
+    Configuration,
+    PipelineConfiguration,
+    PlotsConfiguration,
+    Sample,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -38,14 +39,13 @@ def configuration(tmp_path: Path) -> Configuration:
     """Build a Configuration whose directories all live under tmp_path."""
 
     config = Configuration(
-        raw_data_directory=tmp_path / "raw",
+        samples=[Sample(id="sample_a", path=tmp_path / "raw" / "sample_a")],
         output_directory=tmp_path / "output",
         processed_data_directory=tmp_path / "output" / "processed",
         results_directory=tmp_path / "output" / "analysis",
         figures_directory=tmp_path / "output" / "figures",
         logs_directory=tmp_path / "output" / "logs",
         annotation_model="llama3.1:8b",
-        condition="prostate cancer",
         pipeline=PipelineConfiguration(
             minimum_counts=5,
             maximum_counts_quantile=0.99,
@@ -70,11 +70,13 @@ def build_synthetic_adata(
     n_per_type: int = 40,
     n_genes: int = 24,
     n_types: int = 3,
+    gene_prefix: str = "gene",
+    coord_offset: tuple[float, float] = (0.0, 0.0),
 ) -> AnnData:
     """Synthetic AnnData with distinct cell-type marker blocks and clustered coordinates."""
 
     rng = np.random.default_rng(seed)
-    gene_names = [f"gene_{i}" for i in range(n_genes)]
+    gene_names = [f"{gene_prefix}_{i}" for i in range(n_genes)]
     block_size = n_genes // n_types
 
     count_blocks = []
@@ -99,7 +101,7 @@ def build_synthetic_adata(
             centers[i] + rng.normal(0.0, 8.0, size=(n_per_type, 2))
             for i in range(n_types)
         ]
-    )
+    ) + np.array(coord_offset)
 
     cell_types = np.concatenate(
         [np.full(n_per_type, f"type_{i}", dtype=object) for i in range(n_types)]
@@ -109,10 +111,9 @@ def build_synthetic_adata(
         {
             "cell_id": cell_ids,
             "cell_type": pd.Categorical(cell_types),
-            "region": pd.Categorical(["cell_boundaries"] * n_obs),
             "total_counts": counts.sum(axis=1),
         },
-        index=pd.Index(cell_ids, name="cell_id"),
+        index=pd.Index(cell_ids),
     )
     var = pd.DataFrame(index=pd.Index(gene_names, name="gene_id"))
 
@@ -124,47 +125,6 @@ def build_synthetic_adata(
 
 @pytest.fixture
 def tiny_adata() -> AnnData:
-    """Synthetic AnnData for tests that do not need a SpatialData wrapper."""
+    """Synthetic AnnData used by most tests."""
 
     return build_synthetic_adata()
-
-
-def _cell_boundary_polygons(coords: np.ndarray, cell_ids: list[str]) -> GeoDataFrame:
-    """Build a GeoDataFrame of square cell boundaries centered on spatial coords."""
-
-    side = 2.0
-    polygons = [
-        Polygon(
-            [
-                (x - side, y - side),
-                (x + side, y - side),
-                (x + side, y + side),
-                (x - side, y + side),
-            ]
-        )
-        for x, y in coords
-    ]
-    gdf = GeoDataFrame(
-        {"geometry": polygons},
-        index=pd.Index(cell_ids, name="cell_id"),
-    )
-    return ShapesModel.parse(gdf)
-
-
-@pytest.fixture
-def tiny_spatialdata(tiny_adata: AnnData) -> SpatialData:
-    """Minimal SpatialData wrapping tiny_adata with cell_boundaries shapes."""
-
-    cell_ids = tiny_adata.obs["cell_id"].tolist()
-    cell_boundaries = _cell_boundary_polygons(tiny_adata.obsm["spatial"], cell_ids)
-
-    table = TableModel.parse(
-        tiny_adata.copy(),
-        region="cell_boundaries",
-        region_key="region",
-        instance_key="cell_id",
-    )
-    return SpatialData(
-        shapes={"cell_boundaries": cell_boundaries},
-        tables={"table": table},
-    )

@@ -3,12 +3,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from spatialdata_io import xenium
-
 from src import (
     analysis,
     annotation,
     colocalization,
+    ingest,
     io,
     plotting,
     preprocessing,
@@ -56,19 +55,13 @@ def load_configuration() -> Configuration:
     return configuration
 
 
-def _zarr_path(configuration: Configuration) -> Path:
-    """Return the path to the processed zarr store."""
+def _validate_anndata_exists(configuration: Configuration) -> None:
+    """Raise if the processed AnnData does not exist."""
 
-    return configuration.processed_data_directory / "processed.zarr"
-
-
-def _validate_zarr_exists(configuration: Configuration) -> None:
-    """Raise if the processed zarr does not exist."""
-
-    path = _zarr_path(configuration)
+    path = configuration.processed_data_directory / "processed.h5ad"
     if not path.exists():
         raise FileNotFoundError(
-            f"processed zarr not found at '{path}'. run the ingest stage first"
+            f"processed anndata not found at '{path}'. run the ingest stage first"
         )
 
 
@@ -77,11 +70,10 @@ def _validate_obs_column(
     column: str,
     stage_name: str,
 ) -> None:
-    """Raise if the zarr exists but is missing a required obs column."""
+    """Raise if the processed AnnData is missing a required obs column."""
 
-    _validate_zarr_exists(configuration)
-    spatial_data = io.read_spatialdata_zarr(configuration)
-    annotated_data = spatial_data["table"]
+    _validate_anndata_exists(configuration)
+    annotated_data = io.read_processed_anndata(configuration)
     if column not in annotated_data.obs.columns:
         raise ValueError(
             f"'{column}' not found in obs. run the upstream stages before {stage_name}"
@@ -93,49 +85,49 @@ def _validate_obsp_key(
     key: str,
     stage_name: str,
 ) -> None:
-    """Raise if the zarr exists but is missing a required obsp key."""
+    """Raise if the processed AnnData is missing a required obsp key."""
 
-    _validate_zarr_exists(configuration)
-    spatial_data = io.read_spatialdata_zarr(configuration)
-    annotated_data = spatial_data["table"]
+    _validate_anndata_exists(configuration)
+    annotated_data = io.read_processed_anndata(configuration)
     if key not in annotated_data.obsp:
         raise ValueError(
             f"'{key}' not found in obsp. run the upstream stages before {stage_name}"
         )
 
 
+def _validate_single_sample_until_library_key_support(
+    configuration: Configuration,
+    stage_name: str,
+) -> None:
+    """Block multi-sample runs from the spatial stages until #16 adds library_key handling."""
+
+    _validate_anndata_exists(configuration)
+    annotated_data = io.read_processed_anndata(configuration)
+    if "sample_id" in annotated_data.obs.columns:
+        number_of_samples = int(annotated_data.obs["sample_id"].nunique())
+        if number_of_samples > 1:
+            raise NotImplementedError(
+                f"{stage_name} does not yet support multi-sample runs "
+                f"(found {number_of_samples} samples). "
+                "Per-sample spatial graphs via squidpy's library_key land in issue #16."
+            )
+
+
 def run_ingest_stage(configuration: Configuration) -> None:
-    """Ingest raw Xenium output into a processed SpatialData zarr."""
+    """Ingest raw Xenium samples into a merged AnnData h5ad."""
 
     logger.info("stage: ingest")
-    if not configuration.raw_data_directory.exists():
-        raise FileNotFoundError(
-            f"raw data directory not found at '{configuration.raw_data_directory}'"
-        )
-
-    spatial_data = xenium(configuration.raw_data_directory)
-    if "morphology_focus" in spatial_data:
-        del spatial_data["morphology_focus"]
-        logger.debug("removed morphology_focus element from ingested spatialdata")
-
-    io.write_spatialdata_zarr(configuration, spatial_data)
+    ingest.run_ingest(configuration)
 
 
 def run_preprocess_stage(configuration: Configuration) -> None:
     """Run preprocessing and clustering steps on pre-ingested data."""
 
     logger.info("stage: preprocess and cluster")
-    _validate_zarr_exists(configuration)
-    spatial_data = io.read_spatialdata_zarr(configuration)
-    annotated_data = spatial_data["table"]
+    _validate_anndata_exists(configuration)
+    annotated_data = io.read_processed_anndata(configuration)
 
-    plotting.plot_cell_and_nucleus_boundaries(configuration, spatial_data)
-    plotting.plot_transcripts(
-        configuration,
-        spatial_data,
-        list(configuration.plots.genes_to_plot),
-        ["blue", "orange"],
-    )
+    # TODO(#16): per-sample spatial overlay plots (boundaries, transcripts) move to notebook helpers
 
     if "counts" in annotated_data.layers:
         annotated_data.X = annotated_data.layers["counts"].copy()
@@ -175,23 +167,20 @@ def run_preprocess_stage(configuration: Configuration) -> None:
     io.write_labels(configuration, annotated_data, "cluster")
     io.write_enriched_genes(configuration, enriched_gene_lists)
 
-    spatial_data["table"] = annotated_data
-    io.write_spatialdata_zarr(configuration, spatial_data)
+    io.write_processed_anndata(configuration, annotated_data)
 
 
 def run_annotate_stage(configuration: Configuration) -> None:
-    """Run LLM-driven cell-type annotation and persist updated zarr."""
+    """Run LLM-driven cell-type annotation and persist the updated AnnData."""
 
     logger.info("stage: annotate clusters")
     _validate_obs_column(configuration, "leiden", "annotate")
-    spatial_data = io.read_spatialdata_zarr(configuration)
-    annotated_data = spatial_data["table"]
+    annotated_data = io.read_processed_anndata(configuration)
 
     enriched_gene_lists = io.read_enriched_genes(configuration)
     cluster_annotations = annotation.annotate_clusters_with_llm(
         enriched_gene_lists,
         configuration.annotation_model,
-        configuration.condition,
         "marker_genes",
     )
     io.write_annotations(configuration, cluster_annotations, "cluster")
@@ -207,27 +196,18 @@ def run_annotate_stage(configuration: Configuration) -> None:
         )
     )
 
-    plotting.plot_umap_leiden(
-        configuration,
-        spatial_data,
-    )
-    plotting.plot_cluster_overlay(
-        configuration,
-        spatial_data,
-        cluster_key="cell_type",
-    )
+    # TODO(#16): UMAP-by-cluster and per-sample cluster overlay scatters
 
-    spatial_data["table"] = annotated_data
-    io.write_spatialdata_zarr(configuration, spatial_data)
+    io.write_processed_anndata(configuration, annotated_data)
 
 
 def run_domains_stage(configuration: Configuration) -> None:
-    """Run neighborhood analysis and persist updated zarr."""
+    """Run neighborhood analysis and persist the updated AnnData."""
 
     logger.info("stage: spatial domains")
     _validate_obs_column(configuration, "cell_type", "domains")
-    spatial_data = io.read_spatialdata_zarr(configuration)
-    annotated_data = spatial_data["table"]
+    _validate_single_sample_until_library_key_support(configuration, "domains")
+    annotated_data = io.read_processed_anndata(configuration)
 
     spatial_domains.compute_neighborhood_composition(
         annotated_data, configuration.pipeline.neighborhood_colocalization_radius
@@ -239,7 +219,6 @@ def run_domains_stage(configuration: Configuration) -> None:
     domain_annotations = annotation.annotate_clusters_with_llm(
         domain_signatures,
         configuration.annotation_model,
-        configuration.condition,
         "neighborhood_cell_types",
     )
 
@@ -257,14 +236,9 @@ def run_domains_stage(configuration: Configuration) -> None:
 
     io.write_labels(configuration, annotated_data, "domain")
 
-    plotting.plot_cluster_overlay(
-        configuration,
-        spatial_data,
-        cluster_key="spatial_domain_label",
-    )
+    # TODO(#16): per-sample spatial_domain_label overlay scatters
 
-    spatial_data["table"] = annotated_data
-    io.write_spatialdata_zarr(configuration, spatial_data)
+    io.write_processed_anndata(configuration, annotated_data)
 
 
 def run_colocalization_stage(configuration: Configuration) -> None:
@@ -273,8 +247,8 @@ def run_colocalization_stage(configuration: Configuration) -> None:
     logger.info("stage: colocalization")
     _validate_obs_column(configuration, "cell_type", "colocalization")
     _validate_obsp_key(configuration, "spatial_connectivities", "colocalization")
-    spatial_data = io.read_spatialdata_zarr(configuration)
-    annotated_data = spatial_data["table"]
+    _validate_single_sample_until_library_key_support(configuration, "colocalization")
+    annotated_data = io.read_processed_anndata(configuration)
 
     counts, row_proportions = colocalization.compute_observed_contact_matrices(
         annotated_data,

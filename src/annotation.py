@@ -9,11 +9,12 @@ from .logging import get_logger
 
 logger = get_logger(__name__)
 
+_CONDITION = "prostate cancer"
+
 
 def annotate_clusters_with_llm(
     annotation_evidence_by_cluster: dict[str, list[object]],
     model: str,
-    condition: str,
     evidence_type: str,
     host: str = "http://localhost:11434",
     temperature: float = 0.0,
@@ -41,7 +42,7 @@ def annotate_clusters_with_llm(
         "set of already-used labels and rewrite any candidate label that would "
         "collide before you return JSON. "
     )
-    condition_context = f"{condition} spatial transcriptomics"
+    condition_context = f"{_CONDITION} spatial transcriptomics"
     system_instruction = (
         f"You are a domain expert in {condition_context}. "
         "Use maximally specific labels (lineage + subtype + state), keep "
@@ -70,7 +71,6 @@ def annotate_clusters_with_llm(
                     "role": "user",
                     "content": _build_annotation_prompt(
                         annotation_evidence_by_cluster,
-                        condition,
                         evidence_type,
                     ),
                 },
@@ -102,7 +102,6 @@ def annotate_clusters_with_llm(
 
 def _build_annotation_prompt(
     annotation_evidence_by_cluster: dict[str, list[object]],
-    condition: str,
     evidence_type: str,
 ) -> str:
     """Build prompt with schema and per-cluster annotation evidence."""
@@ -116,7 +115,7 @@ def _build_annotation_prompt(
 
     if is_marker_mode:
         lines = [
-            f"Condition: {condition}.",
+            f"Condition: {_CONDITION}.",
             f"Annotate each cluster with one main cell type label from {evidence_label}.",
             "Be as specific as possible (lineage + subtype + functional state).",
             f"If clusters are similar, disambiguate using {support_phrase} states.",
@@ -137,7 +136,7 @@ def _build_annotation_prompt(
         ]
     else:
         lines = [
-            f"Condition: {condition}.",
+            f"Condition: {_CONDITION}.",
             "Annotate each spatial domain with one microenvironment label from neighboring cell-type composition.",
             "Do not output only a single raw cell type name; use niche/interface/transition-zone wording.",
             "Good label styles: 'Tumor-immune interface', 'Fibro-inflammatory stroma niche', 'Basal-luminal transition zone'.",

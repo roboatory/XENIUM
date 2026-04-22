@@ -25,11 +25,10 @@ def test_annotation_schema_shape() -> None:
 
 
 def test_build_annotation_prompt_marker_mode_includes_evidence() -> None:
-    """Marker-mode prompt lists clusters and their formatted evidence items."""
+    """Marker-mode prompt lists clusters, formatted evidence, and the hardcoded condition."""
 
     prompt = annotation._build_annotation_prompt(
         {"0": ["KRT8", "EPCAM"], "1": ["CD3D"]},
-        condition="prostate cancer",
         evidence_type="marker_genes",
     )
     assert "Condition: prostate cancer." in prompt
@@ -43,7 +42,6 @@ def test_build_annotation_prompt_neighborhood_mode_uses_niche_wording() -> None:
 
     prompt = annotation._build_annotation_prompt(
         {"0": [("Tumor", 0.6), ("Stroma", 0.4)]},
-        condition="prostate cancer",
         evidence_type="neighborhood_cell_types",
     )
     assert "niche/interface" in prompt
@@ -99,7 +97,6 @@ def test_annotate_clusters_with_llm_parses_response() -> None:
         result = annotation.annotate_clusters_with_llm(
             {"0": ["KRT8"], "1": ["CD3D"]},
             model="llama3.1:8b",
-            condition="prostate cancer",
             evidence_type="marker_genes",
         )
 
@@ -119,7 +116,6 @@ def test_annotate_clusters_with_llm_raises_on_network_error() -> None:
             annotation.annotate_clusters_with_llm(
                 {"0": ["KRT8"]},
                 model="llama3.1:8b",
-                condition="prostate cancer",
                 evidence_type="marker_genes",
             )
 
@@ -136,7 +132,6 @@ def test_annotate_clusters_with_llm_raises_on_invalid_json() -> None:
             annotation.annotate_clusters_with_llm(
                 {"0": ["KRT8"]},
                 model="llama3.1:8b",
-                condition="prostate cancer",
                 evidence_type="marker_genes",
             )
 
@@ -166,7 +161,6 @@ def test_annotate_clusters_with_llm_sends_expected_payload() -> None:
         annotation.annotate_clusters_with_llm(
             {"0": ["KRT8"]},
             model="llama3.1:8b",
-            condition="prostate cancer",
             evidence_type="marker_genes",
         )
 

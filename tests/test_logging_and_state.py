@@ -70,7 +70,6 @@ def test_configuration_settings_snapshot_round_trips_key_values(
     snapshot = state.configuration_settings_snapshot(configuration)
 
     assert snapshot["annotation_model"] == configuration.annotation_model
-    assert snapshot["condition"] == configuration.condition
     assert snapshot["pipeline"]["pca_n_components"] == (
         configuration.pipeline.pca_n_components
     )
@@ -78,3 +77,15 @@ def test_configuration_settings_snapshot_round_trips_key_values(
         configuration.pipeline.colocalization_number_of_permutations
     )
     assert snapshot["plots"]["genes_to_plot"] == list(configuration.plots.genes_to_plot)
+
+
+def test_configuration_settings_snapshot_includes_samples(
+    configuration: Configuration,
+) -> None:
+    """The snapshot lists each sample's id and path."""
+
+    snapshot = state.configuration_settings_snapshot(configuration)
+
+    assert snapshot["samples"] == [
+        {"id": sample.id, "path": str(sample.path)} for sample in configuration.samples
+    ]

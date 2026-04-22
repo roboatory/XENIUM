@@ -4,43 +4,43 @@ import json
 from pathlib import Path
 
 import pandas as pd
-from spatialdata import SpatialData
+from anndata import AnnData
 
 from src import io
 from src.config import Configuration
 
 
-def test_spatialdata_zarr_round_trip(
+def test_processed_anndata_round_trip(
     configuration: Configuration,
-    tiny_spatialdata: SpatialData,
+    tiny_adata: AnnData,
 ) -> None:
-    """write_spatialdata_zarr + read_spatialdata_zarr preserves the table."""
+    """write_processed_anndata + read_processed_anndata preserves the AnnData."""
 
-    io.write_spatialdata_zarr(configuration, tiny_spatialdata)
-    round_tripped = io.read_spatialdata_zarr(configuration)
+    io.write_processed_anndata(configuration, tiny_adata)
+    round_tripped = io.read_processed_anndata(configuration)
 
-    zarr_path = configuration.processed_data_directory / "processed.zarr"
-    assert zarr_path.exists()
-    assert round_tripped["table"].n_obs == tiny_spatialdata["table"].n_obs
-    assert round_tripped["table"].n_vars == tiny_spatialdata["table"].n_vars
-    assert "cell_boundaries" in round_tripped.shapes
+    h5ad_path = configuration.processed_data_directory / "processed.h5ad"
+    assert h5ad_path.exists()
+    assert round_tripped.n_obs == tiny_adata.n_obs
+    assert round_tripped.n_vars == tiny_adata.n_vars
+    assert list(round_tripped.obs.columns) == list(tiny_adata.obs.columns)
 
 
-def test_write_spatialdata_zarr_overwrites_previous_zarr(
+def test_write_processed_anndata_overwrites_previous_file(
     configuration: Configuration,
-    tiny_spatialdata: SpatialData,
+    tiny_adata: AnnData,
 ) -> None:
-    """Re-writing replaces the prior zarr without leaving a stale temp directory."""
+    """Re-writing replaces the prior h5ad without leaving a stale temp file."""
 
-    io.write_spatialdata_zarr(configuration, tiny_spatialdata)
-    io.write_spatialdata_zarr(configuration, tiny_spatialdata)
+    io.write_processed_anndata(configuration, tiny_adata)
+    io.write_processed_anndata(configuration, tiny_adata)
 
     processed_dir = configuration.processed_data_directory
     tmp_entries = [
         p for p in processed_dir.iterdir() if p.name.startswith(".processed")
     ]
     assert tmp_entries == []
-    assert (processed_dir / "processed.zarr").exists()
+    assert (processed_dir / "processed.h5ad").exists()
 
 
 def test_enriched_genes_round_trip(configuration: Configuration) -> None:
@@ -71,7 +71,7 @@ def test_write_annotations_creates_expected_files(configuration: Configuration) 
 
 def test_write_labels_cluster_mode_writes_csv_with_cell_id(
     configuration: Configuration,
-    tiny_adata,
+    tiny_adata: AnnData,
 ) -> None:
     """write_labels produces leiden_clusters.csv with the cell_id and group columns."""
 
@@ -89,7 +89,7 @@ def test_write_labels_cluster_mode_writes_csv_with_cell_id(
 
 def test_write_labels_domain_mode_writes_csv_at_expected_path(
     configuration: Configuration,
-    tiny_adata,
+    tiny_adata: AnnData,
 ) -> None:
     """write_labels in domain mode writes spatial_domain_labels.csv."""
 

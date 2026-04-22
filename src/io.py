@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from anndata import AnnData
 import json
 from pathlib import Path
-import shutil
 from typing import Any
 from uuid import uuid4
 
-from spatialdata import SpatialData, read_zarr
+import anndata as ad
+from anndata import AnnData
 
 from .config import Configuration
 from .logging import get_logger
@@ -15,35 +14,35 @@ from .logging import get_logger
 logger = get_logger(__name__)
 
 
-def read_spatialdata_zarr(
+def read_processed_anndata(
     configuration: Configuration,
-) -> SpatialData:
-    """Read processed zarr file from the processed data directory."""
+) -> AnnData:
+    """Read the merged processed AnnData from disk."""
 
-    path = configuration.processed_data_directory / "processed.zarr"
-    logger.debug("reading spatialdata zarr from %s", path)
-    return read_zarr(path)
+    path = configuration.processed_data_directory / "processed.h5ad"
+    logger.debug("reading processed anndata from %s", path)
+    return ad.read_h5ad(path)
 
 
-def write_spatialdata_zarr(
+def write_processed_anndata(
     configuration: Configuration,
-    spatial_data: SpatialData,
+    annotated_data: AnnData,
 ) -> None:
-    """Write processed spatial zarr using a simple temp-then-replace flow."""
+    """Write the merged processed AnnData using atomic temp-then-rename."""
 
-    target_path = configuration.processed_data_directory / "processed.zarr"
+    target_path = configuration.processed_data_directory / "processed.h5ad"
     temporary_path = target_path.parent / f".{target_path.name}.tmp-{uuid4().hex}"
 
-    spatial_data.write(temporary_path, overwrite=True)
+    annotated_data.write_h5ad(temporary_path)
 
     try:
         if target_path.exists():
-            shutil.rmtree(target_path)
+            target_path.unlink()
         temporary_path.rename(target_path)
-        logger.debug("wrote spatialdata zarr to %s", target_path)
+        logger.debug("wrote processed anndata to %s", target_path)
     finally:
         if temporary_path.exists():
-            shutil.rmtree(temporary_path)
+            temporary_path.unlink()
 
 
 def read_enriched_genes(
