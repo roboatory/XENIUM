@@ -4,7 +4,11 @@ import scanpy as sc
 from anndata import AnnData
 from scipy.sparse import csr_matrix
 
-from src.preprocessing import filter_cells_and_genes, normalize_and_scale
+from src.preprocessing import (
+    compute_qc_metrics,
+    filter_cells_and_genes,
+    normalize_and_scale,
+)
 
 from .conftest import build_synthetic_adata
 
@@ -37,6 +41,7 @@ def test_filter_cells_and_genes_drops_extreme_outliers_single_sample(
     extreme_row[0] = extreme_row[0] * 1000
     tiny_adata.X = csr_matrix(extreme_row)
 
+    compute_qc_metrics(tiny_adata)
     filter_cells_and_genes(tiny_adata, minimum_cells=1)
 
     assert original_obs not in tiny_adata.obs.index
@@ -66,10 +71,23 @@ def test_filter_cells_and_genes_applies_mad_per_sample(
 
     merged = _concat_with_sample_ids([sample_a, sample_b], ["sample_a", "sample_b"])
 
+    compute_qc_metrics(merged)
     filter_cells_and_genes(merged, minimum_cells=1)
 
     sample_b_rows = merged[merged.obs["sample_id"].astype(str) == "sample_b"]
     assert sample_b_rows.n_obs > 0
+
+
+def test_filter_cells_and_genes_raises_when_qc_metrics_missing(
+    tiny_adata: AnnData,
+) -> None:
+    """Filter refuses to run on obs that doesn't carry the required QC metric columns."""
+
+    import pytest
+
+    assert "log1p_total_counts" not in tiny_adata.obs.columns
+    with pytest.raises(ValueError, match="compute_qc_metrics first"):
+        filter_cells_and_genes(tiny_adata, minimum_cells=1)
 
 
 def test_filter_cells_and_genes_applies_global_gene_filter(tiny_adata: AnnData) -> None:
@@ -81,6 +99,7 @@ def test_filter_cells_and_genes_applies_global_gene_filter(tiny_adata: AnnData) 
     tiny_adata.X = csr_matrix(dense)
     rare_gene = tiny_adata.var_names[-1]
 
+    compute_qc_metrics(tiny_adata)
     filter_cells_and_genes(tiny_adata, minimum_cells=10)
 
     assert rare_gene not in tiny_adata.var_names

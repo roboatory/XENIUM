@@ -95,24 +95,6 @@ def _validate_obsp_key(
         )
 
 
-def _validate_single_sample_until_library_key_support(
-    configuration: Configuration,
-    stage_name: str,
-) -> None:
-    """Block multi-sample runs from the spatial stages until #16 adds library_key handling."""
-
-    _validate_anndata_exists(configuration)
-    annotated_data = io.read_processed_anndata(configuration)
-    if "sample_id" in annotated_data.obs.columns:
-        number_of_samples = int(annotated_data.obs["sample_id"].nunique())
-        if number_of_samples > 1:
-            raise NotImplementedError(
-                f"{stage_name} does not yet support multi-sample runs "
-                f"(found {number_of_samples} samples). "
-                "Per-sample spatial graphs via squidpy's library_key land in issue #16."
-            )
-
-
 def run_ingest_stage(configuration: Configuration) -> None:
     """Ingest raw Xenium samples into a merged AnnData h5ad."""
 
@@ -134,7 +116,10 @@ def run_preprocess_stage(configuration: Configuration) -> None:
     else:
         annotated_data.layers["counts"] = annotated_data.X.copy()
 
-    # TODO(#16): faceted per-sample QC histogram with MAD cutoffs replaces the legacy global histogram
+    preprocessing.compute_qc_metrics(annotated_data)
+    cutoffs_by_sample = preprocessing.compute_per_sample_mad_cutoffs(annotated_data)
+    plotting.plot_qc_histogram(configuration, annotated_data, cutoffs_by_sample)
+
     preprocessing.filter_cells_and_genes(
         annotated_data,
         configuration.pipeline.minimum_cells,
@@ -203,7 +188,6 @@ def run_domains_stage(configuration: Configuration) -> None:
 
     logger.info("stage: spatial domains")
     _validate_obs_column(configuration, "cell_type", "domains")
-    _validate_single_sample_until_library_key_support(configuration, "domains")
     annotated_data = io.read_processed_anndata(configuration)
 
     spatial_domains.compute_neighborhood_composition(
@@ -250,7 +234,6 @@ def run_colocalization_stage(configuration: Configuration) -> None:
     logger.info("stage: colocalization")
     _validate_obs_column(configuration, "cell_type", "colocalization")
     _validate_obsp_key(configuration, "spatial_connectivities", "colocalization")
-    _validate_single_sample_until_library_key_support(configuration, "colocalization")
     annotated_data = io.read_processed_anndata(configuration)
 
     counts, row_proportions = colocalization.compute_observed_contact_matrices(

@@ -110,9 +110,14 @@ def compute_permutation_significance(
     )
 
     random_generator = np.random.default_rng(RANDOM_SEED)
+    sample_partitions = _sample_partitions(annotated_data, eligible_index)
 
     for _ in range(number_of_permutations):
-        permuted_codes = random_generator.permutation(eligible_cell_type_codes)
+        permuted_codes = eligible_cell_type_codes.copy()
+        for partition in sample_partitions:
+            permuted_codes[partition] = random_generator.permutation(
+                permuted_codes[partition]
+            )
         permuted_contacts = _symmetric_counts(
             permuted_codes[row_position],
             permuted_codes[column_position],
@@ -182,6 +187,24 @@ def compute_permutation_significance(
         int(depletion_selection_mask.sum()),
     )
     return results
+
+
+def _sample_partitions(
+    annotated_data: AnnData,
+    eligible_index: np.ndarray,
+) -> list[np.ndarray]:
+    """Partition eligible-cell positions by sample_id so permutations stay within sample."""
+
+    if "sample_id" not in annotated_data.obs.columns:
+        return [np.arange(eligible_index.size)]
+
+    eligible_sample_ids = (
+        annotated_data.obs["sample_id"].iloc[eligible_index].astype(str).to_numpy()
+    )
+    return [
+        np.where(eligible_sample_ids == sample_value)[0]
+        for sample_value in pd.unique(eligible_sample_ids)
+    ]
 
 
 def _undirected_edges(

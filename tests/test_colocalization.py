@@ -96,6 +96,46 @@ def test_benjamini_hochberg_matches_scipy() -> None:
     assert np.allclose(result, expected)
 
 
+def test_sample_partitions_cover_eligible_cells_without_overlap(
+    tiny_adata: AnnData,
+) -> None:
+    """_sample_partitions produces disjoint index sets that together cover all eligible cells."""
+
+    import anndata as ad
+
+    merged = ad.concat(
+        [tiny_adata.copy(), tiny_adata.copy()],
+        keys=["sample_a", "sample_b"],
+        label="sample_id",
+        index_unique="_",
+    )
+    merged.obs.index.name = None
+    eligible_index = np.arange(merged.n_obs)
+
+    partitions = colocalization._sample_partitions(merged, eligible_index)
+    assert len(partitions) == 2
+    covered = np.concatenate(partitions)
+    assert covered.size == merged.n_obs
+    assert len(set(covered.tolist())) == merged.n_obs
+
+
+def test_permutation_significance_does_not_mutate_obs_cell_type(
+    tiny_adata: AnnData,
+) -> None:
+    """compute_permutation_significance does not modify adata.obs (permutations are local)."""
+
+    _attach_spatial_graph(tiny_adata, radius=30.0)
+    before = tiny_adata.obs["cell_type"].astype(str).to_numpy().copy()
+
+    colocalization.compute_permutation_significance(
+        tiny_adata,
+        number_of_permutations=5,
+        minimum_cells=3,
+    )
+    after = tiny_adata.obs["cell_type"].astype(str).to_numpy()
+    assert (before == after).all()
+
+
 def test_benjamini_hochberg_handles_empty_input() -> None:
     """_benjamini_hochberg on an empty array returns an empty float array."""
 

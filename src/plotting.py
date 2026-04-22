@@ -49,42 +49,59 @@ def _suppress_show() -> Iterator[None]:
 def plot_qc_histogram(
     configuration: Configuration,
     annotated_data: AnnData,
-    cutoffs: list[float],
-    cutoff_colors: list[str],
+    cutoffs_by_sample: dict[str, dict[str, tuple[float, float]]],
 ) -> None:
-    """Plot QC histogram."""
+    """Faceted per-sample QC histogram of log1p_total_counts with MAD cutoffs as vlines."""
 
-    out_path = configuration.figures_directory / "xenium_transcripts_per_cell.png"
-    logger.debug("rendering QC histogram to %s", out_path)
+    out_path = configuration.figures_directory / "xenium_qc_histograms.png"
+    metric = "log1p_total_counts"
+    if metric not in annotated_data.obs.columns:
+        logger.debug("skipping QC histogram: %s not on obs", metric)
+        return
 
-    cutoffs = [
-        int(cutoffs[0]),
-        int(np.quantile(annotated_data.obs["total_counts"], cutoffs[1])),
-    ]
+    if "sample_id" in annotated_data.obs.columns:
+        grouping = annotated_data.obs["sample_id"].astype(str)
+    else:
+        grouping = pd.Series("__single__", index=annotated_data.obs.index)
+    sample_ids = sorted(grouping.unique().tolist())
+    if not sample_ids:
+        return
+
+    logger.debug("rendering faceted QC histogram to %s", out_path)
 
     with _suppress_show():
-        figure, ax = plt.subplots(figsize=(10, 5), dpi=FIGURE_DPI)
-        ax.hist(annotated_data.obs["total_counts"], bins=100, color="black", alpha=0.8)
-        ax.set_xlabel("transcripts per cell")
-        ax.set_ylabel("number of cells")
-        ax.set_title("QC: transcripts per cell (full range)")
-
-        for index, (cutoff, color) in enumerate(zip(cutoffs, cutoff_colors)):
-            ax.axvline(cutoff, color=color, linestyle="--", linewidth=2, alpha=0.8)
-            ax.text(
-                cutoff,
-                ax.get_ylim()[1] * (0.9 - 0.05 * index),
-                f"cutoff={cutoff}",
-                color=color,
-                fontsize=12,
-                ha="left",
-                va="top",
-                fontweight="bold",
-                bbox=dict(facecolor="white", alpha=0.5, edgecolor="none", pad=0.2),
-            )
-
-        figure.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
-        plt.close(figure)
+        n_samples = len(sample_ids)
+        fig, axes = plt.subplots(
+            1,
+            n_samples,
+            figsize=(max(6, 5 * n_samples), 4),
+            dpi=FIGURE_DPI,
+            squeeze=False,
+        )
+        axes = axes[0]
+        for axis, sample_id in zip(axes, sample_ids):
+            sample_mask = (grouping == sample_id).to_numpy()
+            values = annotated_data.obs.loc[sample_mask, metric].to_numpy()
+            axis.hist(values, bins=80, color="black", alpha=0.8)
+            bounds = cutoffs_by_sample.get(sample_id, {}).get(metric)
+            if bounds is not None:
+                lower, upper = bounds
+                for cutoff in (lower, upper):
+                    if np.isfinite(cutoff):
+                        axis.axvline(
+                            cutoff,
+                            color="crimson",
+                            linestyle="--",
+                            linewidth=2,
+                            alpha=0.8,
+                        )
+            axis.set_xlabel(metric)
+            axis.set_ylabel("cells")
+            axis.set_title(sample_id)
+        fig.suptitle("QC: 5-MAD cutoffs on log1p total counts per sample")
+        fig.tight_layout()
+        fig.savefig(out_path, bbox_inches="tight", dpi=FIGURE_DPI)
+        plt.close(fig)
         logger.debug("saved figure %s", out_path)
 
 
@@ -154,10 +171,12 @@ def plot_cluster_overlay(
         )
         return
 
-    suffix = f"_{sample_id}" if sample_id is not None else ""
-    out_path = (
-        configuration.figures_directory / f"xenium_{cluster_key}_overlay{suffix}.png"
-    )
+    if sample_id is not None:
+        out_dir = configuration.figures_directory / sample_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"xenium_{cluster_key}_overlay.png"
+    else:
+        out_path = configuration.figures_directory / f"xenium_{cluster_key}_overlay.png"
     logger.debug("rendering overlay for %s to %s", cluster_key, out_path)
 
     with _suppress_show():
@@ -278,6 +297,10 @@ def plot_rank_genes_dotplot(
 
     out_path = configuration.figures_directory / f"rank_genes_dotplot_top_{n_genes}.png"
     logger.debug("rendering ranked-genes dotplot to %s", out_path)
+
+    # Precompute the dendrogram on X_pca so scanpy does not fall back to a
+    # groupby-mean over obs, which breaks on sparse X and object-dtype columns.
+    sc.tl.dendrogram(annotated_data, groupby="leiden", use_rep="X_pca")
 
     with _suppress_show():
         dotplot = sc.pl.rank_genes_groups_dotplot(

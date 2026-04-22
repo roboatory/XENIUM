@@ -133,7 +133,7 @@ class Configuration:
         )
 
     def create_directories(self) -> None:
-        """Ensure all output directories exist."""
+        """Ensure all output directories exist, including per-sample subdirs."""
 
         for path in (
             self.processed_data_directory,
@@ -144,3 +144,8 @@ class Configuration:
             if path is not None:
                 path.mkdir(parents=True, exist_ok=True)
                 logger.debug("ensured output directory exists: %s", path)
+
+        for sample in self.samples:
+            for parent in (self.figures_directory, self.results_directory):
+                if parent is not None:
+                    (parent / sample.id).mkdir(parents=True, exist_ok=True)

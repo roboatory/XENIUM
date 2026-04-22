@@ -100,21 +100,32 @@ def write_labels(
     annotated_data: AnnData,
     target: str,
 ) -> None:
-    """Write cluster/domain label CSV artifacts."""
+    """Write one per-sample cluster/domain label CSV under results/<sample_id>/."""
 
     if target == "cluster":
         label_column = "leiden"
-        output_path = configuration.results_directory / "leiden_clusters.csv"
+        filename = "leiden_clusters.csv"
     elif target == "domain":
         label_column = "spatial_domain"
-        output_path = configuration.results_directory / "spatial_domain_labels.csv"
+        filename = "spatial_domain_labels.csv"
+    else:
+        raise ValueError(f"unknown label target: {target!r}")
 
-    dataframe = annotated_data.obs[[label_column]].rename(
-        columns={label_column: "group"}
-    )
-    dataframe.insert(0, "cell_id", annotated_data.obs["cell_id"])
-    dataframe.to_csv(output_path, index=False)
-    logger.debug("wrote %s labels to %s", target, output_path)
+    obs = annotated_data.obs
+    if "sample_id" not in obs.columns:
+        raise ValueError(
+            "write_labels requires an obs['sample_id'] column; ingest must tag samples"
+        )
+
+    for sample_id, group in obs.groupby(obs["sample_id"].astype(str)):
+        dataframe = group[[label_column]].rename(columns={label_column: "group"})
+        dataframe.insert(0, "cell_id", group["cell_id"])
+        output_path = configuration.results_directory / str(sample_id) / filename
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        dataframe.to_csv(output_path, index=False)
+        logger.debug(
+            "wrote %s labels for sample %s to %s", target, sample_id, output_path
+        )
 
 
 def save_state(
