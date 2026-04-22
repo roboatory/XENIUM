@@ -15,7 +15,9 @@ def _base_config_dict(raw: Path, output: Path) -> dict:
         "annotation_model": "llama3.1:8b",
         "pipeline": {
             "minimum_cells": 5,
+            "mad_threshold": 5.0,
             "pca_n_components": 20,
+            "leiden_resolution": 0.5,
             "neighborhood_colocalization_radius": 50.0,
             "colocalization_number_of_permutations": 100,
             "colocalization_minimum_cells": 5,
@@ -126,7 +128,9 @@ def test_pipeline_configuration_casts_numeric_types() -> None:
 
     raw = {
         "minimum_cells": "5",
+        "mad_threshold": "5.0",
         "pca_n_components": "20",
+        "leiden_resolution": "0.5",
         "neighborhood_colocalization_radius": "50.0",
         "colocalization_number_of_permutations": "200",
         "colocalization_minimum_cells": "5",
@@ -138,6 +142,8 @@ def test_pipeline_configuration_casts_numeric_types() -> None:
     pipeline = PipelineConfiguration.from_dictionary(raw)
 
     assert pipeline.minimum_cells == 5
+    assert pipeline.mad_threshold == pytest.approx(5.0)
     assert pipeline.pca_n_components == 20
+    assert pipeline.leiden_resolution == pytest.approx(0.5)
     assert pipeline.neighborhood_colocalization_radius == pytest.approx(50.0)
     assert pipeline.colocalization_number_of_permutations == 200

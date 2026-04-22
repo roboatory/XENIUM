@@ -31,7 +31,9 @@ def configuration_settings_snapshot(configuration: Configuration) -> dict[str, A
         "annotation_model": configuration.annotation_model,
         "pipeline": {
             "minimum_cells": pipeline.minimum_cells,
+            "mad_threshold": pipeline.mad_threshold,
             "pca_n_components": pipeline.pca_n_components,
+            "leiden_resolution": pipeline.leiden_resolution,
             "neighborhood_colocalization_radius": (
                 pipeline.neighborhood_colocalization_radius
             ),

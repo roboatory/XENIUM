@@ -47,7 +47,9 @@ def configuration(tmp_path: Path) -> Configuration:
         annotation_model="llama3.1:8b",
         pipeline=PipelineConfiguration(
             minimum_cells=2,
+            mad_threshold=5.0,
             pca_n_components=5,
+            leiden_resolution=0.5,
             neighborhood_colocalization_radius=25.0,
             colocalization_number_of_permutations=50,
             colocalization_minimum_cells=3,

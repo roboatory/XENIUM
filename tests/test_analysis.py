@@ -24,7 +24,7 @@ def test_run_clustering_single_sample_skips_harmony(tiny_adata: AnnData) -> None
     """Single-sample run populates X_pca, X_umap, leiden but not X_pca_harmony."""
 
     _prepare_for_clustering(tiny_adata)
-    analysis.run_clustering(tiny_adata, pca_n_components=5)
+    analysis.run_clustering(tiny_adata, pca_n_components=5, leiden_resolution=0.5)
 
     assert "X_pca" in tiny_adata.obsm
     assert "X_pca_harmony" not in tiny_adata.obsm
@@ -54,7 +54,7 @@ def test_run_clustering_multi_sample_runs_harmony_and_stores_uncorrected_umap() 
     with patch(
         "src.analysis.sce.pp.harmony_integrate", side_effect=fake_harmony
     ) as mocked:
-        analysis.run_clustering(merged, pca_n_components=5)
+        analysis.run_clustering(merged, pca_n_components=5, leiden_resolution=0.5)
 
     mocked.assert_called_once()
     assert mocked.call_args.kwargs["key"] == "sample_id"
@@ -69,7 +69,7 @@ def test_rank_genes_populates_uns(tiny_adata: AnnData) -> None:
     """rank_genes stores rank_genes_groups results in uns."""
 
     _prepare_for_clustering(tiny_adata)
-    analysis.run_clustering(tiny_adata, pca_n_components=5)
+    analysis.run_clustering(tiny_adata, pca_n_components=5, leiden_resolution=0.5)
     analysis.rank_genes(tiny_adata)
 
     assert "rank_genes_groups" in tiny_adata.uns
@@ -80,7 +80,7 @@ def test_compute_enriched_genes_respects_filters(tiny_adata: AnnData) -> None:
     """compute_enriched_genes returns a dict keyed by cluster id with filtered gene lists."""
 
     _prepare_for_clustering(tiny_adata)
-    analysis.run_clustering(tiny_adata, pca_n_components=5)
+    analysis.run_clustering(tiny_adata, pca_n_components=5, leiden_resolution=0.5)
     analysis.rank_genes(tiny_adata)
 
     permissive = analysis.compute_enriched_genes(
@@ -105,7 +105,7 @@ def test_compute_enriched_genes_respects_top_n(tiny_adata: AnnData) -> None:
     """compute_enriched_genes caps each cluster's list at top_n entries."""
 
     _prepare_for_clustering(tiny_adata)
-    analysis.run_clustering(tiny_adata, pca_n_components=5)
+    analysis.run_clustering(tiny_adata, pca_n_components=5, leiden_resolution=0.5)
     analysis.rank_genes(tiny_adata)
 
     result = analysis.compute_enriched_genes(

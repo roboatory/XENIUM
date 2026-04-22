@@ -8,12 +8,14 @@ output_directory: "../output"
 annotation_model: "llama3.1:8b"
 
 pipeline:
-  minimum_cells: 100
-  pca_n_components: 30
-  neighborhood_colocalization_radius: 50.0
-  colocalization_number_of_permutations: 1000
-  colocalization_minimum_cells: 30
-  domain_n_clusters: 8
-  rank_top_n: 30
-  minimum_logarithm_fold_change: 0.5
-  maximum_adjusted_p_value: 0.05
+  minimum_cells: 100                           # drop genes expressed in fewer cells than this (post-QC)
+  mad_threshold: 5.0                           # cells flagged as QC outliers if any log1p metric lies this many MADs from the per-sample median
+  pca_n_components: 30                         # number of principal components used for PCA, Harmony input, and neighbor graph
+  leiden_resolution: 0.5                       # cluster granularity — larger values yield more, finer clusters
+  neighborhood_colocalization_radius: 50.0     # pixel radius for the spatial neighbor graph used by domains and colocalization
+  colocalization_number_of_permutations: 1000  # permutations for the null contact distribution under label shuffling
+  colocalization_minimum_cells: 30             # exclude cell types with fewer cells than this from colocalization testing
+  domain_n_clusters: 8                         # k for k-means over per-cell neighborhood composition vectors
+  rank_top_n: 30                               # keep this many top marker genes per Leiden cluster for annotation prompts
+  minimum_logarithm_fold_change: 0.5           # marker gene floor: drop genes below this log fold change
+  maximum_adjusted_p_value: 0.05               # marker gene ceiling: drop genes above this BH-adjusted p-value

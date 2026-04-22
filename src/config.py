@@ -36,7 +36,9 @@ class PipelineConfiguration:
     """Numeric parameters for the analysis pipeline."""
 
     minimum_cells: int
+    mad_threshold: float
     pca_n_components: int
+    leiden_resolution: float
     neighborhood_colocalization_radius: float
     colocalization_number_of_permutations: int
     colocalization_minimum_cells: int
@@ -54,7 +56,9 @@ class PipelineConfiguration:
 
         return cls(
             minimum_cells=int(data["minimum_cells"]),
+            mad_threshold=float(data["mad_threshold"]),
             pca_n_components=int(data["pca_n_components"]),
+            leiden_resolution=float(data["leiden_resolution"]),
             neighborhood_colocalization_radius=float(
                 data["neighborhood_colocalization_radius"]
             ),

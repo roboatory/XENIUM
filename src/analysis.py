@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 def run_clustering(
     annotated_data: AnnData,
     pca_n_components: int,
+    leiden_resolution: float,
 ) -> None:
     """Run PCA, optional Harmony batch correction, neighbors, UMAP, and Leiden."""
 
@@ -44,7 +45,7 @@ def run_clustering(
 
     sc.tl.leiden(
         annotated_data,
-        resolution=0.5,
+        resolution=leiden_resolution,
         flavor="igraph",
     )
     logger.info(

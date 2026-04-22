@@ -42,7 +42,7 @@ def test_filter_cells_and_genes_drops_extreme_outliers_single_sample(
     tiny_adata.X = csr_matrix(extreme_row)
 
     compute_qc_metrics(tiny_adata)
-    filter_cells_and_genes(tiny_adata, minimum_cells=1)
+    filter_cells_and_genes(tiny_adata, minimum_cells=1, mad_threshold=5.0)
 
     assert original_obs not in tiny_adata.obs.index
 
@@ -72,7 +72,7 @@ def test_filter_cells_and_genes_applies_mad_per_sample(
     merged = _concat_with_sample_ids([sample_a, sample_b], ["sample_a", "sample_b"])
 
     compute_qc_metrics(merged)
-    filter_cells_and_genes(merged, minimum_cells=1)
+    filter_cells_and_genes(merged, minimum_cells=1, mad_threshold=5.0)
 
     sample_b_rows = merged[merged.obs["sample_id"].astype(str) == "sample_b"]
     assert sample_b_rows.n_obs > 0
@@ -87,7 +87,7 @@ def test_filter_cells_and_genes_raises_when_qc_metrics_missing(
 
     assert "log1p_total_counts" not in tiny_adata.obs.columns
     with pytest.raises(ValueError, match="compute_qc_metrics first"):
-        filter_cells_and_genes(tiny_adata, minimum_cells=1)
+        filter_cells_and_genes(tiny_adata, minimum_cells=1, mad_threshold=5.0)
 
 
 def test_filter_cells_and_genes_applies_global_gene_filter(tiny_adata: AnnData) -> None:
@@ -100,7 +100,7 @@ def test_filter_cells_and_genes_applies_global_gene_filter(tiny_adata: AnnData) 
     rare_gene = tiny_adata.var_names[-1]
 
     compute_qc_metrics(tiny_adata)
-    filter_cells_and_genes(tiny_adata, minimum_cells=10)
+    filter_cells_and_genes(tiny_adata, minimum_cells=10, mad_threshold=5.0)
 
     assert rare_gene not in tiny_adata.var_names
 
@@ -116,7 +116,7 @@ def test_filter_cells_and_genes_skips_zero_spread_metric(tiny_adata: AnnData) ->
     # collapses to zero, so the 5-MAD band has no width.
     tiny_adata.obs["pct_counts_in_top_20_genes"] = 50.0
 
-    mask = _flag_per_sample_mad_outliers(tiny_adata)
+    mask = _flag_per_sample_mad_outliers(tiny_adata, mad_threshold=5.0)
     # Only the two remaining metrics drive flagging; the constant one must not
     # drag every cell into the outlier set.
     assert mask.sum() < tiny_adata.n_obs

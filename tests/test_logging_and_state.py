@@ -76,6 +76,10 @@ def test_configuration_settings_snapshot_round_trips_key_values(
     assert snapshot["pipeline"]["colocalization_number_of_permutations"] == (
         configuration.pipeline.colocalization_number_of_permutations
     )
+    assert snapshot["pipeline"]["mad_threshold"] == configuration.pipeline.mad_threshold
+    assert snapshot["pipeline"]["leiden_resolution"] == (
+        configuration.pipeline.leiden_resolution
+    )
 
 
 def test_configuration_settings_snapshot_includes_samples(

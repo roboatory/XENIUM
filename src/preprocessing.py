@@ -15,7 +15,6 @@ QC_METRICS = (
     "log1p_n_genes_by_counts",
     "pct_counts_in_top_20_genes",
 )
-MAD_THRESHOLD = 5.0
 
 
 def compute_qc_metrics(
@@ -33,8 +32,9 @@ def compute_qc_metrics(
 
 def compute_per_sample_mad_cutoffs(
     annotated_data: AnnData,
+    mad_threshold: float,
 ) -> dict[str, dict[str, tuple[float, float]]]:
-    """Return {sample_id: {metric: (lower, upper)}} 5-MAD bounds used by the filter and diagnostic."""
+    """Return {sample_id: {metric: (lower, upper)}} per-sample MAD bounds used by the filter and diagnostic."""
 
     obs = annotated_data.obs
     if "sample_id" in obs.columns:
@@ -55,8 +55,8 @@ def compute_per_sample_mad_cutoffs(
                 sample_cutoffs[metric] = (float("-inf"), float("inf"))
                 continue
             sample_cutoffs[metric] = (
-                center - MAD_THRESHOLD * spread,
-                center + MAD_THRESHOLD * spread,
+                center - mad_threshold * spread,
+                center + mad_threshold * spread,
             )
         cutoffs[str(sample_value)] = sample_cutoffs
     return cutoffs
@@ -65,6 +65,7 @@ def compute_per_sample_mad_cutoffs(
 def filter_cells_and_genes(
     annotated_data: AnnData,
     minimum_cells: int,
+    mad_threshold: float,
 ) -> None:
     """Flag per-sample MAD outliers, drop them, then apply the global gene filter."""
 
@@ -75,12 +76,12 @@ def filter_cells_and_genes(
             f"compute_qc_metrics first (missing: {missing_metrics})"
         )
 
-    outlier_mask = _flag_per_sample_mad_outliers(annotated_data)
+    outlier_mask = _flag_per_sample_mad_outliers(annotated_data, mad_threshold)
     n_flagged = int(outlier_mask.sum())
     logger.info(
         "MAD outlier filter flagged %s cells at %s MADs across %s",
         n_flagged,
-        MAD_THRESHOLD,
+        mad_threshold,
         ", ".join(QC_METRICS),
     )
     annotated_data._inplace_subset_obs(~outlier_mask)
@@ -93,8 +94,11 @@ def filter_cells_and_genes(
     )
 
 
-def _flag_per_sample_mad_outliers(annotated_data: AnnData) -> np.ndarray:
-    """Return a boolean mask of cells flagged as outliers by 5-MAD per-sample QC."""
+def _flag_per_sample_mad_outliers(
+    annotated_data: AnnData,
+    mad_threshold: float,
+) -> np.ndarray:
+    """Return a boolean mask of cells flagged as per-sample MAD outliers."""
 
     obs = annotated_data.obs
     has_sample_id = "sample_id" in obs.columns
@@ -110,12 +114,12 @@ def _flag_per_sample_mad_outliers(annotated_data: AnnData) -> np.ndarray:
         center = grouped.transform("median")
         spread = grouped.transform(lambda group: median_abs_deviation(group.to_numpy()))
         # When a sample's MAD is zero the metric is degenerate (bimodal cluster
-        # at the median, or a single cell). The 5-MAD band collapses to a point
+        # at the median, or a single cell). The MAD band collapses to a point
         # and any deviation becomes an "outlier", which over-flags. Treat the
         # metric as uninformative for that sample instead.
         has_spread = spread > 0
-        lower = center - MAD_THRESHOLD * spread
-        upper = center + MAD_THRESHOLD * spread
+        lower = center - mad_threshold * spread
+        upper = center + mad_threshold * spread
         outlier_mask |= has_spread & ((values < lower) | (values > upper))
 
     return outlier_mask.to_numpy()

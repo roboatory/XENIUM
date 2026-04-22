@@ -123,7 +123,7 @@ def test_plot_umap_leiden_takes_anndata_directly(
 
     sc.pp.calculate_qc_metrics(tiny_adata, inplace=True, percent_top=None, log1p=False)
     normalize_and_scale(tiny_adata)
-    analysis.run_clustering(tiny_adata, pca_n_components=5)
+    analysis.run_clustering(tiny_adata, pca_n_components=5, leiden_resolution=0.5)
     tiny_adata.obs["cell_type"] = tiny_adata.obs["leiden"].astype(str)
 
     plotting.plot_umap_leiden(configuration, tiny_adata)
@@ -147,7 +147,7 @@ def test_plot_qc_histogram_faceted_by_sample(
     sc.pp.calculate_qc_metrics(merged, inplace=True, percent_top=[20], log1p=True)
     from src.preprocessing import compute_per_sample_mad_cutoffs
 
-    cutoffs = compute_per_sample_mad_cutoffs(merged)
+    cutoffs = compute_per_sample_mad_cutoffs(merged, mad_threshold=5.0)
 
     plotting.plot_qc_histogram(configuration, merged, cutoffs)
     _assert_nonempty_file(configuration.figures_directory / "xenium_qc_histograms.png")
@@ -195,7 +195,7 @@ def test_plot_rank_genes_dotplot_writes_figure(
 
     sc.pp.calculate_qc_metrics(tiny_adata, inplace=True, percent_top=None, log1p=False)
     normalize_and_scale(tiny_adata)
-    analysis.run_clustering(tiny_adata, pca_n_components=5)
+    analysis.run_clustering(tiny_adata, pca_n_components=5, leiden_resolution=0.5)
     analysis.rank_genes(tiny_adata)
     sc.tl.dendrogram(tiny_adata, groupby="leiden", use_rep="X_pca")
 

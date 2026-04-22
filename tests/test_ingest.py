@@ -29,7 +29,9 @@ def multi_sample_configuration(tmp_path: Path) -> Configuration:
         logs_directory=tmp_path / "output" / "logs",
         pipeline=PipelineConfiguration(
             minimum_cells=1,
+            mad_threshold=5.0,
             pca_n_components=2,
+            leiden_resolution=0.5,
             neighborhood_colocalization_radius=1.0,
             colocalization_number_of_permutations=1,
             colocalization_minimum_cells=1,

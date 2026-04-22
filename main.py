@@ -117,17 +117,22 @@ def run_preprocess_stage(configuration: Configuration) -> None:
         annotated_data.layers["counts"] = annotated_data.X.copy()
 
     preprocessing.compute_qc_metrics(annotated_data)
-    cutoffs_by_sample = preprocessing.compute_per_sample_mad_cutoffs(annotated_data)
+    cutoffs_by_sample = preprocessing.compute_per_sample_mad_cutoffs(
+        annotated_data,
+        configuration.pipeline.mad_threshold,
+    )
     plotting.plot_qc_histogram(configuration, annotated_data, cutoffs_by_sample)
 
     preprocessing.filter_cells_and_genes(
         annotated_data,
         configuration.pipeline.minimum_cells,
+        configuration.pipeline.mad_threshold,
     )
     preprocessing.normalize_and_scale(annotated_data)
     analysis.run_clustering(
         annotated_data,
         configuration.pipeline.pca_n_components,
+        configuration.pipeline.leiden_resolution,
     )
     plotting.plot_harmony_diagnostic(configuration, annotated_data)
     analysis.rank_genes(annotated_data)
