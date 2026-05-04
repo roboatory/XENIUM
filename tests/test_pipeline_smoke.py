@@ -76,6 +76,9 @@ class _FakeOllamaResponse:
     def read(self) -> bytes:
         return self._body
 
+    def __iter__(self):
+        yield from self._body.splitlines()
+
 
 def _ollama_response_for_clusters(cluster_ids: list[str]) -> bytes:
     """Produce the body an Ollama /api/chat would return with one annotation per cluster."""

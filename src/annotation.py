@@ -76,7 +76,8 @@ def annotate_clusters_with_llm(
                 },
             ],
             "format": _annotation_schema(),
-            "stream": False,
+            "stream": True,
+            "keep_alive": "30m",
             "options": {
                 "temperature": temperature,
                 "seed": seed,
@@ -194,6 +195,8 @@ def _ollama_chat(
 
     try:
         with urlopen(request, timeout=timeout_seconds) as response:
+            if payload.get("stream"):
+                return _parse_streaming_ollama_response(response)
             body = response.read().decode("utf-8")
     except (HTTPError, URLError) as error:
         message = f"failed to reach local LLM at {url}: {error}"
@@ -206,6 +209,43 @@ def _ollama_chat(
         message = "local LLM returned invalid JSON."
         logger.error(message)
         raise RuntimeError(message) from error
+
+
+def _parse_streaming_ollama_response(
+    response: Any,
+) -> dict[str, Any]:
+    """Accumulate Ollama streamed chat chunks into the non-streaming response shape."""
+
+    content_parts: list[str] = []
+    final_chunk: dict[str, Any] = {}
+
+    for line in response:
+        decoded_line = line.decode("utf-8").strip()
+        if not decoded_line:
+            continue
+        try:
+            chunk = json.loads(decoded_line)
+        except json.JSONDecodeError as error:
+            message = "local LLM returned invalid JSON."
+            logger.error(message)
+            raise RuntimeError(message) from error
+
+        final_chunk = chunk
+        message = chunk.get("message", {})
+        content = message.get("content")
+        if content:
+            content_parts.append(str(content))
+
+    if not content_parts:
+        message = "local LLM returned an empty streaming response."
+        logger.error(message)
+        raise RuntimeError(message)
+
+    final_chunk["message"] = {
+        **final_chunk.get("message", {}),
+        "content": "".join(content_parts),
+    }
+    return final_chunk
 
 
 def _annotation_schema() -> dict[str, Any]:

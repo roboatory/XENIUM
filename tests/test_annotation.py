@@ -68,6 +68,9 @@ class _FakeResponse:
     def read(self) -> bytes:
         return self._body
 
+    def __iter__(self):
+        yield from self._body.splitlines()
+
 
 def test_annotate_clusters_with_llm_parses_response() -> None:
     """A mocked Ollama response is parsed into a dict keyed by cluster id."""
@@ -137,7 +140,7 @@ def test_annotate_clusters_with_llm_raises_on_invalid_json() -> None:
 
 
 def test_annotate_clusters_with_llm_sends_expected_payload() -> None:
-    """The request payload includes the correct model, stream flag, and deterministic options."""
+    """The request payload includes the correct model, streaming, and deterministic options."""
 
     captured: dict = {}
 
@@ -166,5 +169,51 @@ def test_annotate_clusters_with_llm_sends_expected_payload() -> None:
 
     assert captured["url"].endswith("/api/chat")
     assert captured["payload"]["model"] == "llama3.1:8b"
-    assert captured["payload"]["stream"] is False
+    assert captured["payload"]["stream"] is True
+    assert captured["payload"]["keep_alive"] == "30m"
     assert captured["payload"]["options"] == {"temperature": 0.0, "seed": 42}
+
+
+def test_ollama_chat_accumulates_streamed_content() -> None:
+    """A streamed Ollama response is accumulated into the same shape as a full response."""
+
+    annotations = {
+        "annotations": [
+            {
+                "cluster_id": "0",
+                "cell_type": "Luminal",
+                "confidence": 0.5,
+                "rationale": "",
+            }
+        ]
+    }
+    content = json.dumps(annotations)
+    first_half = content[: len(content) // 2]
+    second_half = content[len(content) // 2 :]
+    stream_body = b"\n".join(
+        [
+            json.dumps({"message": {"content": first_half}, "done": False}).encode(
+                "utf-8"
+            ),
+            json.dumps({"message": {"content": second_half}, "done": True}).encode(
+                "utf-8"
+            ),
+        ]
+    )
+
+    with patch.object(
+        annotation,
+        "urlopen",
+        return_value=_FakeResponse(stream_body),
+    ):
+        response = annotation._ollama_chat(
+            {
+                "model": "llama3.1:8b",
+                "messages": [],
+                "stream": True,
+            },
+            host="http://localhost:11434",
+            timeout_seconds=120,
+        )
+
+    assert json.loads(response["message"]["content"]) == annotations
