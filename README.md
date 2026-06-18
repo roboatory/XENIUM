@@ -2,10 +2,10 @@
 
 This repository runs a Xenium-based spatial transcriptomics pipeline. The workflow has two required execution steps:
 
-1. `uv run ingest.py`
-2. `uv run main.py`
+1. Create or choose a run configuration YAML.
+2. `uv run main.py --config <path-to-config>`
 
-The first command ingests raw Xenium output into a processed `SpatialData` Zarr. The second command runs preprocessing, clustering, marker analysis, LLM-based annotation, spatial domain analysis, and colocalization.
+The pipeline ingests raw Xenium output, then runs preprocessing, clustering, marker analysis, LLM-based annotation, spatial domain analysis, and colocalization.
 
 ## Prerequisites
 
@@ -31,64 +31,92 @@ ollama serve
 
 The pipeline expects the Ollama API at `http://localhost:11434`, which is the default server address used by `src/annotation.py`.
 
-## Configure paths
+## Configure a run
 
-Edit [`config.yaml`](/Users/rohit/Desktop/prostate_cancer/code/config.yaml) so these paths match your machine:
+Use `config.example.yaml` as the schema/reference config, then create a named run config outside `pipeline/`, such as `../configs/bone.yaml`.
 
-- `data_directory`: path to the raw Xenium output directory
+- `samples`: list of sample IDs and raw Xenium output directories
 - `output_directory`: path where processed data, analysis artifacts, figures, and logs should be written
+- `annotation_model`: LLM model name, defaulting to `llama3.1:8b`
+- `pipeline`: numeric analysis parameters
 
-The default config also sets:
-
-- `annotation_model: "llama3.1:8b"`
+Relative paths inside a config file are resolved relative to that config file's directory.
 
 ## Run the pipeline end-to-end
 
-From the repository root, run the two required steps in order:
+From the `pipeline/` directory, run all stages:
 
 ```bash
-uv run ingest.py
-uv run main.py
+uv run main.py --config ../configs/bone.yaml
 ```
 
-### Step 1: ingest raw data
+### Run selected stages
+
+Stages always execute in pipeline order, even if they are provided out of order:
 
 ```bash
-uv run ingest.py
+uv run main.py --config ../configs/bone.yaml --stage ingest preprocess
+uv run main.py --config ../configs/bone.yaml --stage annotate domains colocalization
 ```
 
-This reads the raw Xenium dataset from `data_directory` and writes:
+Available stages are:
 
-- `processed/processed.zarr`
+- `ingest`
+- `preprocess`
+- `annotate`
+- `domains`
+- `colocalization`
 
-under the configured `output_directory`.
+### Stage 0: ingest raw data
 
-### Step 2: run the analysis pipeline
+The ingest stage reads the raw Xenium samples from `samples` and writes the merged AnnData object:
 
-```bash
-uv run main.py
-```
+- `processed/processed.h5ad`
 
-This reads `processed/processed.zarr` and runs the downstream analysis stages:
+### Stage 1: preprocess and cluster
 
-- QC filtering and normalization
-- PCA, neighbor graph construction, Leiden clustering, and UMAP
-- marker gene ranking
-- LLM-based cluster annotation with `llama3.1:8b`
-- spatial neighborhood/domain analysis
-- cell-type colocalization analysis
+The preprocess stage reads `processed/processed.h5ad`, computes QC metrics, filters cells/genes, normalizes and scales expression, runs PCA, optionally applies Harmony across `sample_id`, builds neighbors, computes UMAP and Leiden clusters, ranks marker genes, and writes cluster labels/enriched marker lists.
+
+For multi-sample runs, the production pipeline stores the standard pre/post-Harmony sample-level diagnostic through `analysis.run_clustering` and `plotting.plot_harmony_diagnostic`. More exploratory Harmony diagnostics, such as core-specific before/after UMAPs, belong in `notebooks/` rather than `src/` unless they are used by `main.py` or shared production code.
+
+### Stage 2: annotate clusters
+
+The annotation stage sends per-cluster enriched gene lists to the local Ollama model and writes:
+
+- `analysis/cluster_annotations.json`
+- `figures/umap_leiden.png`
+- per-sample `figures/cell_type_overlays/*.png`
+
+It also maps the returned labels onto `obs["cell_type"]` in `processed/processed.h5ad`.
+
+### Stage 3: spatial domains
+
+The domain stage computes local neighborhood composition, clusters those vectors into spatial domains, asks the LLM for microenvironment-style domain labels, and writes:
+
+- `analysis/spatial_domain_annotations.json`
+- per-sample `analysis/<sample_id>/spatial_domain_labels.csv`
+- per-sample `figures/spatial_domain_overlays/*.png`
+
+### Stage 4: colocalization
+
+The colocalization stage computes observed cell-type contact matrices and permutation-based enrichment/depletion statistics while keeping coordinates and the neighbor graph fixed. It writes heatmaps for raw contact counts, row-normalized contact proportions, log2 fold enrichment, and significant-only fold enrichment.
 
 ## Output layout
 
 Under `output_directory`, the pipeline creates:
 
-- `processed/`: processed Zarr data
+- `processed/`: persistent processed AnnData, especially `processed/processed.h5ad`
 - `analysis/`: JSON/CSV analysis artifacts
 - `figures/`: saved plots
 - `logs/`: run logs
 
+## Notebooks
+
+The `notebooks/` directory contains exploratory or validation analyses that are not part of the production `main.py` stage graph. Examples include IHC/Xenium cell-type concordance analysis and core-specific Harmony diagnostics. Notebook-only helpers should stay local to notebooks unless they become reusable production logic.
+
 ## Common failure modes
 
-- If `uv run main.py` fails because `processed.zarr` is missing, run `uv run ingest.py` first.
+- If a downstream stage fails because `processed.h5ad` is missing, include the `ingest` stage first.
 - If annotation fails, confirm that `ollama serve` is running and that `llama3.1:8b` was downloaded with `ollama pull llama3.1:8b`.
-- If paths are wrong, update `config.yaml` before rerunning.
+- If a stage complains about a missing `obs` column such as `leiden` or `cell_type`, rerun the required upstream stage first.
+- If paths are wrong, update the run config passed to `--config` before rerunning.

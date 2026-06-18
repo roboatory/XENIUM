@@ -17,7 +17,6 @@ from src import (
 from src.config import Configuration
 from src.logging import clear_active_log, get_logger, initialize_logging
 
-CONFIG_PATH = Path("config.yaml").resolve()
 logger = get_logger(__name__)
 
 STAGE_ORDER = (
@@ -29,27 +28,31 @@ STAGE_ORDER = (
 )
 
 
-def parse_arguments() -> list[str]:
-    """Parse CLI arguments and return the selected stages in pipeline order."""
+def parse_arguments() -> argparse.Namespace:
+    """Parse CLI arguments and return normalized pipeline options."""
 
     # fmt: off
     parser = argparse.ArgumentParser(description="Xenium spatial transcriptomics pipeline")
-    parser.add_argument("--stage", nargs="+", choices=STAGE_ORDER, default=None, help="one or more pipeline stages to run (default: all)")
+    parser.add_argument("--config", required=True, type=Path, dest="config_path", help="path to the YAML run configuration")
+    parser.add_argument("--stage", nargs="+", choices=STAGE_ORDER, default=None, dest="stages", help="one or more pipeline stages to run (default: all)")
     # fmt: on
 
     args = parser.parse_args()
+    args.config_path = args.config_path.resolve()
 
-    if args.stage is None:
-        return list(STAGE_ORDER)
+    if args.stages is None:
+        args.stages = list(STAGE_ORDER)
+    else:
+        args.stages = [stage for stage in STAGE_ORDER if stage in args.stages]
 
-    return [stage for stage in STAGE_ORDER if stage in args.stage]
+    return args
 
 
-def load_configuration() -> Configuration:
+def load_configuration(config_path: Path) -> Configuration:
     """Load and initialize top-level configuration."""
 
     configuration = Configuration()
-    configuration.load_from_yaml(CONFIG_PATH)
+    configuration.load_from_yaml(config_path)
     configuration.create_directories()
     initialize_logging(configuration.logs_directory, reset=True)
     return configuration
@@ -108,8 +111,6 @@ def run_preprocess_stage(configuration: Configuration) -> None:
     logger.info("stage: preprocess and cluster")
     _validate_anndata_exists(configuration)
     annotated_data = io.read_processed_anndata(configuration)
-
-    # TODO(#16): per-sample spatial overlay plots (boundaries, transcripts) move to notebook helpers
 
     if "counts" in annotated_data.layers:
         annotated_data.X = annotated_data.layers["counts"].copy()
@@ -278,8 +279,9 @@ STAGE_DISPATCH = {
 
 
 def main() -> None:
-    stages = parse_arguments()
-    configuration = load_configuration()
+    arguments = parse_arguments()
+    configuration = load_configuration(arguments.config_path)
+    stages = arguments.stages
     logger.info("pipeline start (stages: %s)", ", ".join(stages))
 
     for stage_name in stages:

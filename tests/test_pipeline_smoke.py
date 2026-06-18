@@ -83,17 +83,29 @@ class _FakeOllamaResponse:
 def _ollama_response_for_clusters(cluster_ids: list[str]) -> bytes:
     """Produce the body an Ollama /api/chat would return with one annotation per cluster."""
 
-    annotations = [
-        {
-            "cluster_id": cluster_id,
+    annotations = {
+        cluster_id: {
             "cell_type": f"cell_type_{cluster_id}",
             "confidence": 0.9,
             "rationale": "fixture",
         }
         for cluster_id in cluster_ids
-    ]
+    }
     return json.dumps(
-        {"message": {"content": json.dumps({"annotations": annotations})}}
+        {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "annotations": annotations,
+                        "validation": {
+                            "annotation_count": len(annotations),
+                            "unique_cell_type_count": len(annotations),
+                            "duplicate_labels": [],
+                        },
+                    }
+                )
+            }
+        }
     ).encode("utf-8")
 
 

@@ -31,6 +31,7 @@ def write_processed_anndata(
     """Write the merged processed AnnData using atomic temp-then-rename."""
 
     target_path = configuration.processed_data_directory / "processed.h5ad"
+    target_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = target_path.parent / f".{target_path.name}.tmp-{uuid4().hex}"
 
     annotated_data.write_h5ad(temporary_path)
@@ -73,6 +74,7 @@ def write_enriched_genes(
     enriched_genes_path = (
         configuration.results_directory / "cluster_enriched_genes.json"
     )
+    enriched_genes_path.parent.mkdir(parents=True, exist_ok=True)
     with enriched_genes_path.open("w") as file_handle:
         json.dump(enriched_genes, file_handle, indent=2)
     logger.debug("wrote enriched gene sets to %s", enriched_genes_path)
@@ -90,6 +92,7 @@ def write_annotations(
         "domain": configuration.results_directory / "spatial_domain_annotations.json",
     }
     annotations_path = annotation_paths[target]
+    annotations_path.parent.mkdir(parents=True, exist_ok=True)
     with annotations_path.open("w") as file_handle:
         json.dump(annotations, file_handle, indent=2)
     logger.debug("wrote %s annotations to %s", target, annotations_path)
@@ -134,6 +137,7 @@ def save_state(
 ) -> None:
     """Write run configuration snapshot JSON."""
 
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file_handle:
         json.dump(state_payload, file_handle, indent=2, sort_keys=True)
     logger.debug("saved run state to %s", path)

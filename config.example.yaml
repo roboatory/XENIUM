@@ -1,8 +1,6 @@
 samples:
   - id: region_2
     path: "../data/output-XETG00171__0050702__Region_2__20250606__163112"
-  - id: region_3
-    path: "../data/output-XETG00171__0050702__Region_3__20250606__163112"
 
 output_directory: "../output"
 annotation_model: "llama3.1:8b"

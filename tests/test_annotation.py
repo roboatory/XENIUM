@@ -12,15 +12,22 @@ from src import annotation
 def test_annotation_schema_shape() -> None:
     """_annotation_schema declares the required top-level and item keys."""
 
-    schema = annotation._annotation_schema()
+    schema = annotation._annotation_schema({"0", "1"})
     assert schema["type"] == "object"
-    assert schema["required"] == ["annotations"]
-    item_schema = schema["properties"]["annotations"]["items"]
+    assert schema["required"] == ["annotations", "validation"]
+    annotations_schema = schema["properties"]["annotations"]
+    assert annotations_schema["required"] == ["0", "1"]
+    assert annotations_schema["additionalProperties"] is False
+    item_schema = annotations_schema["properties"]["0"]
     assert set(item_schema["required"]) == {
-        "cluster_id",
         "cell_type",
         "confidence",
         "rationale",
+    }
+    assert set(schema["properties"]["validation"]["required"]) == {
+        "annotation_count",
+        "unique_cell_type_count",
+        "duplicate_labels",
     }
 
 
@@ -33,6 +40,9 @@ def test_build_annotation_prompt_marker_mode_includes_evidence() -> None:
     )
     assert "Condition: prostate cancer." in prompt
     assert "marker genes" in prompt
+    assert "JSON object keyed by the exact cluster ids" in prompt
+    assert "unique normalized cell_type count" in prompt
+    assert "validation" in prompt
     assert "- 0: KRT8, EPCAM" in prompt
     assert "- 1: CD3D" in prompt
 
@@ -45,13 +55,38 @@ def test_build_annotation_prompt_neighborhood_mode_uses_niche_wording() -> None:
         evidence_type="neighborhood_cell_types",
     )
     assert "niche/interface" in prompt
+    assert "JSON object keyed by the exact domain ids" in prompt
     assert "- 0: Tumor (60.0%), Stroma (40.0%)" in prompt
 
 
 def _build_ollama_response_body(annotations: list[dict]) -> bytes:
     """Produce the bytes an Ollama /api/chat response would deliver."""
 
-    payload = {"message": {"content": json.dumps({"annotations": annotations})}}
+    annotations_by_cluster = {
+        str(annotation["cluster_id"]): {
+            key: value for key, value in annotation.items() if key != "cluster_id"
+        }
+        for annotation in annotations
+    }
+    payload = {
+        "message": {
+            "content": json.dumps(
+                {
+                    "annotations": annotations_by_cluster,
+                    "validation": {
+                        "annotation_count": len(annotations_by_cluster),
+                        "unique_cell_type_count": len(
+                            {
+                                annotation["cell_type"]
+                                for annotation in annotations_by_cluster.values()
+                            }
+                        ),
+                        "duplicate_labels": [],
+                    },
+                }
+            )
+        }
+    }
     return json.dumps(payload).encode("utf-8")
 
 
@@ -152,7 +187,7 @@ def test_annotate_clusters_with_llm_raises_on_invalid_json() -> None:
 
 
 def test_annotate_clusters_with_llm_sends_expected_payload() -> None:
-    """The request payload includes the correct model, streaming, and deterministic options."""
+    """The request payload includes the correct model and deterministic options."""
 
     captured: dict = {}
 
@@ -172,7 +207,10 @@ def test_annotate_clusters_with_llm_sends_expected_payload() -> None:
             )
         )
 
-    with patch.object(annotation, "urlopen", side_effect=fake_urlopen):
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch.object(annotation, "urlopen", side_effect=fake_urlopen),
+    ):
         annotation.annotate_clusters_with_llm(
             {"0": ["KRT8"]},
             model="llama3.1:8b",
@@ -181,107 +219,76 @@ def test_annotate_clusters_with_llm_sends_expected_payload() -> None:
 
     assert captured["url"].endswith("/api/chat")
     assert captured["payload"]["model"] == "llama3.1:8b"
-    assert captured["payload"]["stream"] is True
-    assert captured["payload"]["keep_alive"] == "30m"
-    assert captured["payload"]["options"] == {"temperature": 0.0, "seed": 42}
+    assert captured["payload"]["stream"] is False
+    assert captured["payload"]["options"] == {
+        "temperature": 0.0,
+        "seed": 42,
+        "num_predict": 1200,
+    }
 
 
-def test_annotate_clusters_with_llm_batches_large_requests() -> None:
-    """Large annotation requests are split into smaller Ollama calls."""
+def test_annotate_clusters_with_llm_uses_slurm_cpu_count() -> None:
+    """The request payload pins Ollama threads to the SLURM allocation."""
+
+    captured: dict = {}
+
+    def fake_urlopen(request, timeout):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _FakeResponse(
+            _build_ollama_response_body(
+                [
+                    {
+                        "cluster_id": "0",
+                        "cell_type": "Luminal",
+                        "confidence": 0.5,
+                        "rationale": "",
+                    }
+                ]
+            )
+        )
+
+    with (
+        patch.dict("os.environ", {"SLURM_CPUS_PER_TASK": "8"}, clear=True),
+        patch.object(annotation, "urlopen", side_effect=fake_urlopen),
+    ):
+        annotation.annotate_clusters_with_llm(
+            {"0": ["KRT8"]},
+            model="llama3.1:8b",
+            evidence_type="marker_genes",
+        )
+
+    assert captured["payload"]["options"]["num_thread"] == 8
+    assert captured["payload"]["options"]["num_predict"] == 1200
+
+
+def test_annotate_clusters_with_llm_sends_one_request_for_many_groups() -> None:
+    """Annotation sends all groups in one non-streaming request."""
 
     captured_payloads: list[dict] = []
 
     def fake_urlopen(request, timeout):
         payload = json.loads(request.data.decode("utf-8"))
         captured_payloads.append(payload)
-        user_message = next(
-            message["content"]
-            for message in payload["messages"]
-            if message["role"] == "user"
-        )
-        cluster_ids = [
-            line[2:].split(":", 1)[0].strip()
-            for line in user_message.splitlines()
-            if line.startswith("- ")
-        ]
         return _FakeResponse(
             _build_ollama_response_body(
                 [
                     {
-                        "cluster_id": cluster_id,
+                        "cluster_id": str(cluster_id),
                         "cell_type": f"cell type {cluster_id}",
                         "confidence": 0.5,
                         "rationale": "",
                     }
-                    for cluster_id in cluster_ids
+                    for cluster_id in range(12)
                 ]
             )
         )
 
     with patch.object(annotation, "urlopen", side_effect=fake_urlopen):
         result = annotation.annotate_clusters_with_llm(
-            {
-                f"{cluster_id:02d}": ["KRT8"]
-                for cluster_id in range(annotation._ANNOTATION_BATCH_SIZE + 2)
-            },
+            {str(cluster_id): ["KRT8"] for cluster_id in range(12)},
             model="llama3.1:8b",
             evidence_type="marker_genes",
         )
 
-    assert len(captured_payloads) == 2
-    assert len(result) == annotation._ANNOTATION_BATCH_SIZE + 2
-    assert "Already-used labels from previous batches" not in next(
-        message["content"]
-        for message in captured_payloads[0]["messages"]
-        if message["role"] == "user"
-    )
-    assert "Already-used labels from previous batches" in next(
-        message["content"]
-        for message in captured_payloads[1]["messages"]
-        if message["role"] == "user"
-    )
-
-
-def test_ollama_chat_accumulates_streamed_content() -> None:
-    """A streamed Ollama response is accumulated into the same shape as a full response."""
-
-    annotations = {
-        "annotations": [
-            {
-                "cluster_id": "0",
-                "cell_type": "Luminal",
-                "confidence": 0.5,
-                "rationale": "",
-            }
-        ]
-    }
-    content = json.dumps(annotations)
-    first_half = content[: len(content) // 2]
-    second_half = content[len(content) // 2 :]
-    stream_body = b"\n".join(
-        [
-            json.dumps({"message": {"content": first_half}, "done": False}).encode(
-                "utf-8"
-            ),
-            json.dumps({"message": {"content": second_half}, "done": True}).encode(
-                "utf-8"
-            ),
-        ]
-    )
-
-    with patch.object(
-        annotation,
-        "urlopen",
-        return_value=_FakeResponse(stream_body),
-    ):
-        response = annotation._ollama_chat(
-            {
-                "model": "llama3.1:8b",
-                "messages": [],
-                "stream": True,
-            },
-            host="http://localhost:11434",
-            timeout_seconds=120,
-        )
-
-    assert json.loads(response["message"]["content"]) == annotations
+    assert len(captured_payloads) == 1
+    assert len(result) == 12

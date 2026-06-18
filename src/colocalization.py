@@ -193,18 +193,32 @@ def _sample_partitions(
     annotated_data: AnnData,
     eligible_index: np.ndarray,
 ) -> list[np.ndarray]:
-    """Partition eligible-cell positions by sample_id so permutations stay within sample."""
+    """Partition eligible-cell positions by core_id, falling back to sample_id."""
 
-    if "sample_id" not in annotated_data.obs.columns:
+    partition_key = _permutation_partition_key(annotated_data)
+    if partition_key is None:
         return [np.arange(eligible_index.size)]
 
-    eligible_sample_ids = (
-        annotated_data.obs["sample_id"].iloc[eligible_index].astype(str).to_numpy()
+    eligible_partition_ids = (
+        annotated_data.obs[partition_key].iloc[eligible_index].astype(str).to_numpy()
     )
+    logger.debug("partitioning colocalization permutations by %s", partition_key)
     return [
-        np.where(eligible_sample_ids == sample_value)[0]
-        for sample_value in pd.unique(eligible_sample_ids)
+        np.where(eligible_partition_ids == partition_value)[0]
+        for partition_value in pd.unique(eligible_partition_ids)
     ]
+
+
+def _permutation_partition_key(
+    annotated_data: AnnData,
+) -> str | None:
+    """Return the best obs key for within-unit colocalization permutations."""
+
+    if "core_id" in annotated_data.obs.columns:
+        return "core_id"
+    if "sample_id" in annotated_data.obs.columns:
+        return "sample_id"
+    return None
 
 
 def _undirected_edges(

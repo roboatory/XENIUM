@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from src import logging as pipeline_logging
 from src import state
@@ -30,6 +31,19 @@ def test_initialize_logging_reuses_existing_active_log(tmp_path: Path) -> None:
     second_log = pipeline_logging.initialize_logging(logs_directory, reset=False)
 
     assert second_log == first_log
+
+
+def test_initialize_logging_uses_stdout_under_slurm(tmp_path: Path) -> None:
+    """SLURM runs rely on the scheduler output file instead of a second log file."""
+
+    logs_directory = tmp_path / "logs"
+
+    with patch.dict("os.environ", {"SLURM_JOB_ID": "123"}, clear=False):
+        log_path = pipeline_logging.initialize_logging(logs_directory, reset=True)
+
+    assert log_path == Path("/dev/stdout")
+    assert not (logs_directory / ".active_log").exists()
+    assert not list(logs_directory.glob("*.log"))
 
 
 def test_clear_active_log_removes_pointer_file(tmp_path: Path) -> None:

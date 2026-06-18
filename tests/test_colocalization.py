@@ -99,7 +99,7 @@ def test_benjamini_hochberg_matches_scipy() -> None:
 def test_sample_partitions_cover_eligible_cells_without_overlap(
     tiny_adata: AnnData,
 ) -> None:
-    """_sample_partitions produces disjoint index sets that together cover all eligible cells."""
+    """_sample_partitions falls back to sample_id when core_id is absent."""
 
     import anndata as ad
 
@@ -117,6 +117,19 @@ def test_sample_partitions_cover_eligible_cells_without_overlap(
     covered = np.concatenate(partitions)
     assert covered.size == merged.n_obs
     assert len(set(covered.tolist())) == merged.n_obs
+
+
+def test_sample_partitions_prefer_core_id(tiny_adata: AnnData) -> None:
+    """_sample_partitions keeps permutations within cores when core labels exist."""
+
+    tiny_adata.obs["sample_id"] = "sample_a"
+    tiny_adata.obs["core_id"] = ["core_1"] * 40 + ["core_2"] * 40 + ["core_3"] * 40
+    eligible_index = np.arange(tiny_adata.n_obs)
+
+    partitions = colocalization._sample_partitions(tiny_adata, eligible_index)
+
+    assert len(partitions) == 3
+    assert [partition.size for partition in partitions] == [40, 40, 40]
 
 
 def test_permutation_significance_does_not_mutate_obs_cell_type(

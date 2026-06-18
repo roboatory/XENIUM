@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -76,7 +77,7 @@ def test_defaults_used_when_optional_keys_omitted(tmp_path: Path) -> None:
 
 
 def test_create_directories_makes_all_outputs(tmp_path: Path) -> None:
-    """create_directories creates processed/results/figures/logs under the output root."""
+    """create_directories creates all output roots for local runs."""
 
     config_path = _write_config(
         tmp_path, _base_config_dict(tmp_path / "raw", tmp_path / "output")
@@ -92,6 +93,24 @@ def test_create_directories_makes_all_outputs(tmp_path: Path) -> None:
         configuration.logs_directory,
     ):
         assert directory.is_dir()
+
+
+def test_create_directories_skips_output_logs_under_slurm(tmp_path: Path) -> None:
+    """SLURM runs use the scheduler log file instead of output/logs."""
+
+    config_path = _write_config(
+        tmp_path, _base_config_dict(tmp_path / "raw", tmp_path / "output")
+    )
+    configuration = Configuration()
+    configuration.load_from_yaml(config_path)
+
+    with patch.dict("os.environ", {"SLURM_JOB_ID": "123"}, clear=False):
+        configuration.create_directories()
+
+    assert configuration.processed_data_directory.is_dir()
+    assert configuration.results_directory.is_dir()
+    assert configuration.figures_directory.is_dir()
+    assert not configuration.logs_directory.exists()
 
 
 def test_multiple_samples_parsed_in_order(tmp_path: Path) -> None:
@@ -115,10 +134,28 @@ def test_multiple_samples_parsed_in_order(tmp_path: Path) -> None:
     ]
 
 
+def test_relative_paths_resolve_from_config_location(tmp_path: Path) -> None:
+    """Relative input and output paths should be resolved next to the YAML file."""
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    payload = _base_config_dict(Path("../raw"), Path("../output"))
+    config_path = _write_config(config_dir, payload)
+
+    configuration = Configuration()
+    configuration.load_from_yaml(config_path)
+
+    assert configuration.samples[0].path == (tmp_path / "raw" / "sample_a").resolve()
+    assert configuration.output_directory == (tmp_path / "output").resolve()
+
+
 def test_sample_from_dictionary_parses_id_and_path(tmp_path: Path) -> None:
     """Sample.from_dictionary reads id and path fields."""
 
-    sample = Sample.from_dictionary({"id": "a", "path": str(tmp_path / "a")})
+    sample = Sample.from_dictionary(
+        {"id": "a", "path": str(tmp_path / "a")},
+        tmp_path,
+    )
     assert sample.id == "a"
     assert sample.path == (tmp_path / "a").resolve()
 

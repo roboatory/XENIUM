@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A spatial transcriptomics analysis pipeline for Xenium data. Single entry point (`main.py`) that runs five stages sequentially: ingestion, preprocessing/clustering, LLM-based annotation (via local Ollama), spatial domain analysis, and colocalization with permutation significance testing. Stages can be run selectively via `--stage`.
+A spatial transcriptomics analysis pipeline for Xenium data. Single entry point (`main.py`) that runs five stages sequentially: ingestion, preprocessing/clustering, LLM-based annotation (via local Ollama), spatial domain analysis, and colocalization with permutation significance testing. A run config must be provided via `--config`; stages can be run selectively via `--stage`.
 
 ## Commands
 
@@ -13,11 +13,11 @@ A spatial transcriptomics analysis pipeline for Xenium data. Single entry point 
 uv sync
 
 # Run the full pipeline (all stages)
-uv run main.py
+uv run main.py --config ../configs/bone.yaml
 
 # Run specific stages (always execute in pipeline order)
-uv run main.py --stage ingest preprocess
-uv run main.py --stage colocalization
+uv run main.py --config ../configs/bone.yaml --stage ingest preprocess
+uv run main.py --config ../configs/bone.yaml --stage colocalization
 
 # Lint and format
 uv run ruff check --fix .
@@ -34,25 +34,25 @@ Pre-commit hooks (ruff lint + ruff format) run on commit and push.
 
 ## Architecture
 
-`main.py` orchestrates all pipeline stages, delegating to modules in `src/`. Stages can be run selectively via `--stage` (accepts one or more of: `ingest`, `preprocess`, `annotate`, `domains`, `colocalization`). When omitted, all stages run in order. Each stage validates its preconditions before executing.
+`main.py` orchestrates all pipeline stages, delegating to modules in `src/`. It requires `--config <path>` for the run configuration. Stages can be run selectively via `--stage` (accepts one or more of: `ingest`, `preprocess`, `annotate`, `domains`, `colocalization`). When omitted, all stages run in order. Each stage validates its preconditions before executing.
 
 ### Pipeline stages in `main.py`
 
 #### Stage 0: Ingest (`run_ingest_stage`)
 
-Reads raw Xenium output via `spatialdata_io.xenium()` into a SpatialData Zarr (`processed/processed.zarr`).
+Reads raw Xenium output via `spatialdata_io.xenium()` and writes a merged AnnData file at `processed/processed.h5ad`.
 
 #### Stage 1: Preprocess & Cluster (`run_preprocess_stage`)
 
-QC filtering, normalization (Seurat v3 HVG selection), PCA, Leiden clustering, UMAP, and marker gene ranking. Writes cluster labels, enriched gene lists, and the updated Zarr.
+QC filtering, normalization (Seurat v3 HVG selection), PCA, Leiden clustering, UMAP, and marker gene ranking. Writes cluster labels, enriched gene lists, and the updated AnnData.
 
 #### Stage 2: Annotation (`run_annotate_stage`)
 
-Sends per-cluster enriched gene lists to a local Ollama LLM, which returns a cell-type label for each Leiden cluster. Maps labels onto `obs["cell_type"]` and writes the updated Zarr.
+Sends per-cluster enriched gene lists to a local Ollama LLM, which returns a cell-type label for each Leiden cluster. Maps labels onto `obs["cell_type"]` and writes the updated AnnData.
 
 #### Stage 3: Spatial Domains (`run_domains_stage`)
 
-Computes per-cell neighborhood composition (cell-type proportions among spatial neighbors within a radius), clusters those vectors with k-means into spatial domains, and sends domain signatures to the LLM for microenvironment-style labeling. Writes domain labels and the updated Zarr.
+Computes per-cell neighborhood composition (cell-type proportions among spatial neighbors within a radius), clusters those vectors with k-means into spatial domains, and sends domain signatures to the LLM for microenvironment-style labeling. Writes domain labels and the updated AnnData.
 
 #### Stage 4: Colocalization (`run_colocalization_stage`)
 
@@ -102,8 +102,8 @@ Saves a configuration snapshot (`state.json`) for provenance and clears the acti
 
 ### Key modules in `src/`
 
-- `config.py` — `Configuration` dataclass that loads `config.yaml` and manages all paths
-- `io.py` — all read/write operations (Zarr, JSON artifacts, CSV labels, state snapshots); uses atomic temp-then-rename for Zarr writes
+- `config.py` — `Configuration` dataclass that loads a YAML config path and manages all paths
+- `io.py` — all read/write operations (AnnData, JSON artifacts, CSV labels, state snapshots)
 - `preprocessing.py` — cell/gene QC filtering, normalization, scaling
 - `analysis.py` — PCA, Leiden clustering, UMAP, marker gene ranking, enriched gene computation
 - `annotation.py` — Ollama API client; two modes: marker gene annotation and neighborhood composition annotation
@@ -113,10 +113,12 @@ Saves a configuration snapshot (`state.json`) for provenance and clears the acti
 - `logging.py` — centralized logging with run-scoped log files and active log pointer
 - `state.py` — configuration snapshot serialization for provenance
 
+Notebook-only diagnostics and exploratory analyses should stay in `notebooks/` rather than being promoted into `src/` unless they are used by `main.py` pipeline stages or shared production code. For example, core-specific Harmony before/after UMAP diagnostics are local helpers in `notebooks/core_harmony_batch_effect_diagnostic.ipynb`; the pipeline itself only computes the standard sample-level Harmony embeddings in `analysis.run_clustering` and renders them with `plotting.plot_harmony_diagnostic`.
+
 ### Core data structures
 
-- **SpatialData Zarr** (`processed.zarr`) — persistent store for spatial coordinates, transcripts, cell/nucleus boundaries, and the AnnData expression matrix
-- **AnnData** (`adata`) — the in-memory object passed through pipeline stages; gene expression in `.X`, metadata in `.obs`, embeddings in `.obsm`
+- **AnnData** (`processed/processed.h5ad`) — persistent processed expression matrix and metadata store
+- **AnnData in memory** (`adata`) — object passed through pipeline stages; gene expression in `.X`, metadata in `.obs`, embeddings in `.obsm`
 
 ### Runtime dependency
 
@@ -124,8 +126,10 @@ The annotation stages require a running Ollama server (`ollama serve`) with mode
 
 ## Configuration
 
-All pipeline parameters live in `config.yaml` at the repo root. Key sections:
+`pipeline/config.example.yaml` documents the expected schema. Named run configs should live outside `pipeline/`, for example `configs/bone.yaml`, and be passed with `--config`. Key sections:
 - `samples` — list of `{id, path}` records pointing at raw Xenium output directories
 - `output_directory` — root for `processed/`, `figures/`, `analysis/`, `logs/`
 - `annotation_model` — LLM model name
 - `pipeline` — numeric parameters (min counts, PCA components, colocalization radius, permutation count, clustering params, significance thresholds)
+
+Relative paths in a YAML config are resolved relative to the config file's directory.

@@ -8,7 +8,7 @@ from anndata import AnnData
 
 from src import io
 from src.config import Configuration, PipelineConfiguration, Sample
-from src.ingest import run_ingest
+from src.ingest import assign_core_labels, run_ingest
 
 from .conftest import build_synthetic_adata
 
@@ -77,6 +77,7 @@ def test_run_ingest_merges_two_samples_into_one_anndata(
         == per_sample["patient_001"].n_obs + per_sample["patient_002"].n_obs
     )
     assert "sample_id" in merged.obs.columns
+    assert "core_id" in merged.obs.columns
     assert set(merged.obs["sample_id"].astype(str).unique()) == {
         "patient_001",
         "patient_002",
@@ -133,6 +134,28 @@ def test_run_ingest_single_sample_writes_anndata(
     merged = io.read_processed_anndata(configuration)
     assert merged.n_obs == tiny_adata.n_obs
     assert (merged.obs["sample_id"].astype(str) == "sample_a").all()
+    assert merged.obs["core_id"].astype(str).str.startswith("sample_a_core_").all()
+
+
+def test_assign_core_labels_orders_cores_from_left_to_right() -> None:
+    """assign_core_labels labels spatially separated cores by x-position."""
+
+    adata = build_synthetic_adata(seed=7, n_per_type=8)
+    adata.obsm["spatial"][:8, 0] -= 500
+    adata.obsm["spatial"][8:16, 0] += 500
+    adata.obsm["spatial"][16:, 0] += 1500
+
+    assign_core_labels(adata, "50702-2")
+
+    labels = adata.obs["core_id"].astype(str).to_numpy()
+    assert set(labels) == {
+        "50702-2_core_1",
+        "50702-2_core_2",
+        "50702-2_core_3",
+    }
+    assert (labels[:8] == "50702-2_core_1").all()
+    assert (labels[8:16] == "50702-2_core_2").all()
+    assert (labels[16:] == "50702-2_core_3").all()
 
 
 def test_run_ingest_raises_on_missing_sample_path(

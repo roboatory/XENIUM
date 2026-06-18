@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class Sample:
-    """A single Xenium sample record loaded from config.yaml."""
+    """A single Xenium sample record loaded from a YAML config."""
 
     id: str
     path: Path
@@ -22,12 +23,17 @@ class Sample:
     def from_dictionary(
         cls: type[Sample],
         data: dict[str, Any],
+        base_directory: Path,
     ) -> Sample:
         """Create a Sample from a raw YAML record with id and path."""
 
+        path = Path(data["path"])
+        if not path.is_absolute():
+            path = base_directory / path
+
         return cls(
             id=str(data["id"]),
-            path=Path(data["path"]).resolve(),
+            path=path.resolve(),
         )
 
 
@@ -92,10 +98,16 @@ class Configuration:
     ) -> None:
         """Load configuration from a YAML file and populate this instance."""
 
+        configuration_path = configuration_path.resolve()
+        base_directory = configuration_path.parent
+
         with configuration_path.open("r") as f:
             configuration = yaml.safe_load(f)
 
-        output_directory = Path(configuration["output_directory"]).resolve()
+        output_directory = Path(configuration["output_directory"])
+        if not output_directory.is_absolute():
+            output_directory = base_directory / output_directory
+        output_directory = output_directory.resolve()
         self.output_directory = output_directory
         self.processed_data_directory = output_directory / "processed"
         self.results_directory = output_directory / "analysis"
@@ -106,7 +118,8 @@ class Configuration:
         )
 
         self.samples = [
-            Sample.from_dictionary(record) for record in configuration["samples"]
+            Sample.from_dictionary(record, base_directory)
+            for record in configuration["samples"]
         ]
         self.pipeline = PipelineConfiguration.from_dictionary(configuration["pipeline"])
         logger.debug(
@@ -119,11 +132,14 @@ class Configuration:
     def create_directories(self) -> None:
         """Ensure all output directories exist, including per-sample subdirs."""
 
+        logs_directory = (
+            None if os.environ.get("SLURM_JOB_ID") else self.logs_directory
+        )
         for path in (
             self.processed_data_directory,
             self.results_directory,
             self.figures_directory,
-            self.logs_directory,
+            logs_directory,
         ):
             if path is not None:
                 path.mkdir(parents=True, exist_ok=True)
