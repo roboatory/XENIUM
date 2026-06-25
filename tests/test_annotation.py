@@ -261,6 +261,39 @@ def test_annotate_clusters_with_llm_uses_slurm_cpu_count() -> None:
     assert captured["payload"]["options"]["num_predict"] == 1200
 
 
+def test_annotate_clusters_with_llm_uses_ollama_host_environment() -> None:
+    """The request URL follows OLLAMA_HOST when no explicit host is provided."""
+
+    captured: dict = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        return _FakeResponse(
+            _build_ollama_response_body(
+                [
+                    {
+                        "cluster_id": "0",
+                        "cell_type": "Luminal",
+                        "confidence": 0.5,
+                        "rationale": "",
+                    }
+                ]
+            )
+        )
+
+    with (
+        patch.dict("os.environ", {"OLLAMA_HOST": "127.0.0.1:18234"}, clear=True),
+        patch.object(annotation, "urlopen", side_effect=fake_urlopen),
+    ):
+        annotation.annotate_clusters_with_llm(
+            {"0": ["KRT8"]},
+            model="llama3.1:8b",
+            evidence_type="marker_genes",
+        )
+
+    assert captured["url"] == "http://127.0.0.1:18234/api/chat"
+
+
 def test_annotate_clusters_with_llm_sends_one_request_for_many_groups() -> None:
     """Annotation sends all groups in one non-streaming request."""
 

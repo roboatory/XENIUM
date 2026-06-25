@@ -11,6 +11,7 @@ from .logging import get_logger
 logger = get_logger(__name__)
 
 _CONDITION = "prostate cancer"
+_DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 _DEFAULT_ANNOTATION_TIMEOUT_SECONDS = 900
 _DEFAULT_NUM_PREDICT = 1200
 
@@ -19,7 +20,7 @@ def annotate_clusters_with_llm(
     annotation_evidence_by_cluster: dict[str, list[object]],
     model: str,
     evidence_type: str,
-    host: str = "http://localhost:11434",
+    host: str | None = None,
     temperature: float = 0.0,
     seed: int = 42,
     timeout_seconds: int = _DEFAULT_ANNOTATION_TIMEOUT_SECONDS,
@@ -83,7 +84,7 @@ def annotate_clusters_with_llm(
             "stream": False,
             "options": _ollama_options(temperature, seed, num_predict),
         },
-        host,
+        _resolve_ollama_host(host),
         timeout_seconds,
     )
 
@@ -219,6 +220,15 @@ def _resolve_num_thread() -> int | None:
             return num_thread
         logger.warning("ignoring non-positive %s=%s", variable_name, value)
     return None
+
+
+def _resolve_ollama_host(host: str | None) -> str:
+    """Return the Ollama host from an explicit value or the environment."""
+
+    resolved_host = host or os.environ.get("OLLAMA_HOST") or _DEFAULT_OLLAMA_HOST
+    if "://" not in resolved_host:
+        resolved_host = f"http://{resolved_host}"
+    return resolved_host
 
 
 def _ollama_chat(
